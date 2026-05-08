@@ -1,0 +1,235 @@
+# ============================================================================
+# .gitignore - Maritime Zero Trust Architecture
+# CRITICAL: Never commit secrets, certificates, or sensitive data
+# ============================================================================
+
+# ====================
+# SECRETS & CERTIFICATES - NEVER COMMIT
+# ====================
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx
+*.cer
+*.csr
+*.der
+
+# Certificate directories
+certs/ca/
+certs/server/
+certs/clients/
+certs/**/*.key
+certs/**/*.crt
+certs/**/*.pem
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+secrets/
+*.secret
+*.token
+
+# ====================
+# DOCKER
+# ====================
+# Override files (may contain local configs)
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Docker ignore files
+.dockerignore
+
+# Docker volumes and data
+**/data/
+**/logs/
+volumes/
+
+# ====================
+# LOGS & MONITORING
+# ====================
+*.log
+logs/
+/var/log/
+*.pcap
+*.cap
+
+# Service-specific logs
+splunk_data/
+splunk_etc/
+mongo_data/
+mongo_config/
+envoy_logs/
+snort_logs/
+
+# ====================
+# PYTHON
+# ====================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# Poetry
+poetry.lock
+.poetry/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# ====================
+# NODE.JS (if any)
+# ====================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ====================
+# IDEs & EDITORS
+# ====================
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (PyCharm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ====================
+# OPERATING SYSTEM
+# ====================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ====================
+# TEMPORARY FILES
+# ====================
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.cache
+
+# ====================
+# PROJECT SPECIFIC
+# ====================
+# Testing outputs
+test-results/
+test-reports/
+*.test.log
+
+# Generated documentation
+docs/_build/
+docs/.doctrees/
+
+# Backup files
+*.backup
+backup/
+backups/
+
+# Local development
+.local/
+local/
+
+# Terraform (if used for IaC)
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Kubernetes (if used)
+*.kubeconfig
+
+# ====================
+# SECURITY SCAN RESULTS
+# ====================
+trivy-results.json
+grype-results.json
+snyk-results.json
+scan-results/
+
+# ====================
+# CI/CD
+# ====================
+.circleci/local/
+.gitlab-ci-local/

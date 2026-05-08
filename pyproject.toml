@@ -1,0 +1,212 @@
+# ============================================================================
+# Poetry Configuration - Maritime Zero Trust Architecture
+# Python dependency management and packaging
+# ============================================================================
+
+[tool.poetry]
+name = "maritime-zta"
+version = "1.0.0"
+description = "Enterprise-grade Zero Trust Architecture for Maritime Operations"
+authors = ["Security Team <security@maritime-ops.local>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/your-org/maritime-zta"
+repository = "https://github.com/your-org/maritime-zta"
+documentation = "https://maritime-zta.readthedocs.io"
+keywords = ["zero-trust", "security", "docker", "kubernetes", "cybersecurity"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Security",
+    "Topic :: System :: Networking",
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Configuration and validation
+pydantic = "^2.5"
+pydantic-settings = "^2.1"
+pyyaml = "^6.0"
+python-dotenv = "^1.0"
+# Cryptography and certificates
+cryptography = "^41.0"
+pyopenssl = "^23.3"
+# HTTP clients
+requests = "^2.31"
+httpx = "^0.25"
+# Docker interaction
+docker = "^7.0"
+# CLI tools
+click = "^8.1"
+rich = "^13.7"
+typer = "^0.9"
+# Logging and monitoring
+structlog = "^23.2"
+# Data processing
+jinja2 = "^3.1"
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^7.4"
+pytest-cov = "^4.1"
+pytest-asyncio = "^0.21"
+pytest-mock = "^3.12"
+pytest-docker = "^2.0"
+# Code quality
+black = "^23.12"
+ruff = "^0.1"
+mypy = "^1.7"
+isort = "^5.13"
+# Security scanning
+bandit = "^1.7"
+safety = "^2.3"
+# Pre-commit hooks
+pre-commit = "^3.6"
+# Documentation
+mkdocs = "^1.5"
+mkdocs-material = "^9.5"
+mkdocstrings = "^0.24"
+
+[tool.poetry.group.test.dependencies]
+# Integration testing
+testcontainers = "^3.7"
+faker = "^21.0"
+
+[tool.poetry.scripts]
+maritime-zta = "scripts.cli:main"
+generate-certs = "scripts.generate_certs:main"
+validate-config = "scripts.validate_config:main"
+run-tests = "scripts.run_tests:main"
+security-audit = "scripts.security_audit:main"
+
+# ============================================================================
+# BLACK - Code Formatter
+# ============================================================================
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# ============================================================================
+# RUFF - Fast Python Linter
+# ============================================================================
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "S",   # flake8-bandit (security)
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "ANN", # flake8-annotations
+    "SIM", # flake8-simplify
+    "A",   # flake8-builtins
+]
+ignore = [
+    "ANN101", # Missing type annotation for self
+    "ANN102", # Missing type annotation for cls
+]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["S101"] # Allow assert in tests
+
+# ============================================================================
+# MYPY - Static Type Checker
+# ============================================================================
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ============================================================================
+# PYTEST - Testing Framework
+# ============================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=scripts",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "security: marks tests as security tests",
+]
+
+# ============================================================================
+# COVERAGE
+# ============================================================================
+[tool.coverage.run]
+source = ["scripts"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+# ============================================================================
+# BANDIT - Security Linter
+# ============================================================================
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".venv"]
+skips = ["B101"] # Allow assert in tests
+
+# ============================================================================
+# BUILD SYSTEM
+# ============================================================================
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
