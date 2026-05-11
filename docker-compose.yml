@@ -1,4 +1,4 @@
-version: '3.8'
+#version: '3.8'
 
 # ==============================================================================
 # Maritime Zero Trust Architecture - Docker Compose
@@ -9,31 +9,42 @@ services:
   # ============================================================================
   # LAYER 4: OBSERVABILITY - SIEM (Must start first for log aggregation)
   # ============================================================================
-  
+
   siem_central:
-    build:
-      context: ./services/splunk
-      dockerfile: Dockerfile
+    #build:
+    #  context: ./services/splunk
+    #  dockerfile: Dockerfile
+    image: splunk/splunk:9.1
     container_name: siem_central
     hostname: splunk-siem
     restart: unless-stopped
+
     networks:
+      - backend_net
       - zerotrust_net
       - monitoring_net
+
     ports:
+      #ponte che permette al tuo browser di comunicare con il server web di Splunk che gira nel container.
       - "8000:8000"   # Web UI
-      - "8088:8088"   # HTTP Event Collector (HEC)
-      - "8089:8089"   # Management port
+      # Rimosse 8088 (HEC) e 8089 (API REST) dalle porte esterne:
+      # Snort, Envoy e OPA ci comunicheranno usando la rete interna Docker, bloccando attacchi esterni.
+      #- "8088:8088"   # HTTP Event Collector (HEC)
+      #- "8089:8089"   # Management port
     volumes:
       - splunk_data:/opt/splunk/var
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
+      #  in sola lettura il volume dove MongoDB scrive i log di audit JSON
+      - mongo_audit_logs:/var/log/mongodb
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+      - SPLUNK_ROLE=splunk_standalone
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8088/services/collector/health"]
+      #test: ["CMD", "curl", "-f", "http://localhost:8088/services/collector/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -47,29 +58,41 @@ services:
   # ============================================================================
   # LAYER 4: DATA - MongoDB Primary Database
   # ============================================================================
-  
+
   db_primary:
-    build:
-      context: ./services/mongodb
-      dockerfile: Dockerfile
+  #  build:
+  #    context: ./services/mongodb
+  #    dockerfile: Dockerfile
+    image: mongo:7.0
     container_name: db_primary
     hostname: mongo-primary
     restart: unless-stopped
+    # Isolamento Zero Trust
     networks:
       - backend_net
-    ports:
-      - "27017:27017"
+    #ports: rimosso Il database è ora accessibile dai container che condividono la rete backend_net
+    #  - "27017:27017"
+    # Istruzione per forzare l'avvio leggendo le regole di sicurezza (TLS/RBAC)
+    command: ["mongod", "--config", "/etc/mongod.conf"]
+
     volumes:
+      # Volume per la persistenza fisica dei dati
       - mongo_data:/data/db
       - mongo_config:/data/configdb
+      # Chiavi crittografiche per connessione TLS (Sola lettura)
       - ./certs/server:/certs:ro
+      # Configurazione di sicurezza (Sola lettura)
       - ./configs/mongodb/mongod.conf:/etc/mongod.conf:ro
+      # Montaggio degli script in configs/mongodb/init-scripts
       - ./configs/mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
+      # Volume per tentativi di accesso, query effettuate o bloccate (da inviare al SIEM)
+      - mongo_audit_logs:/var/log/mongodb
+
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
-    command: ["mongod", "--config", "/etc/mongod.conf"]
+
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -83,41 +106,9 @@ services:
         max-file: "3"
 
   # ============================================================================
-  # LAYER 4: DATA - Database Seeder (One-shot initialization)
-  # ============================================================================
-  
-  db_seeder:
-    build:
-      context: ./services/mongodb
-      dockerfile: Dockerfile
-    container_name: db_seeder
-    hostname: mongo-seeder
-    restart: "no"
-    networks:
-      - backend_net
-    volumes:
-      - ./configs/mongodb/seed:/seed:ro
-      - ./certs/server:/certs:ro
-    environment:
-      - MONGO_HOST=db_primary
-      - MONGO_PORT=27017
-      - MONGO_ROOT_USER=${MONGO_ROOT_USER}
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-      - MONGO_DATABASE=${MONGO_DATABASE}
-    command: ["seed"]
-    depends_on:
-      db_primary:
-        condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-  # ============================================================================
   # LAYER 3: DECISION - OPA Policy Engine (PDP)
   # ============================================================================
-  
+
   pdp_engine:
     build:
       context: ./services/opa
@@ -164,7 +155,7 @@ services:
   # ============================================================================
   # LAYER 2: ENFORCEMENT - Envoy Proxy (PEP)
   # ============================================================================
-  
+
   pep_gateway:
     build:
       context: ./services/envoy
@@ -211,7 +202,7 @@ services:
   # ============================================================================
   # LAYER 1: NETWORK SECURITY - NFTables Firewall
   # ============================================================================
-  
+
   firewall_perimeter:
     build:
       context: ./services/nftables
@@ -238,7 +229,7 @@ services:
   # ============================================================================
   # LAYER 1: NETWORK SECURITY - Snort IDS
   # ============================================================================
-  
+
   ids_network_monitor:
     build:
       context: ./services/snort
@@ -271,7 +262,7 @@ services:
   # TESTING CLIENTS - Profile: "testing"
   # Only started with: docker compose --profile testing up
   # ============================================================================
-  
+
   client_corporate:
     build:
       context: ./services/clients
@@ -423,7 +414,7 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_ZTA_SUBNET:-172.20.2.0/24}
-  
+
   backend_net:
     driver: bridge
     name: maritime-zta_backend
@@ -431,14 +422,14 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
-  
+
   monitoring_net:
     driver: bridge
     name: maritime-zta_monitoring
     ipam:
       config:
         - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
-  
+
   clients_net:
     driver: bridge
     name: maritime-zta_clients
@@ -454,27 +445,31 @@ volumes:
   mongo_data:
     name: maritime-zta_mongo_data
     driver: local
-  
+
   mongo_config:
     name: maritime-zta_mongo_config
     driver: local
-  
+
+  mongo_audit_logs:
+    name: maritime-zta_mongo_audit_logs
+    driver: local
+
   splunk_data:
     name: maritime-zta_splunk_data
     driver: local
-  
+
   splunk_etc:
     name: maritime-zta_splunk_etc
     driver: local
-  
+
   envoy_logs:
     name: maritime-zta_envoy_logs
     driver: local
-  
+
   nftables_logs:
     name: maritime-zta_nftables_logs
     driver: local
-  
+
   snort_logs:
     name: maritime-zta_snort_logs
     driver: local
