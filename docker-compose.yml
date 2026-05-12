@@ -1,4 +1,4 @@
-version: '3.8'
+#version: '3.8'
 
 # ==============================================================================
 # Maritime Zero Trust Architecture - Docker Compose
@@ -16,31 +16,40 @@ services:
   # ============================================================================
 
   siem_central:
-    build:
-      context: ./services/splunk
-      dockerfile: Dockerfile
+    #build:
+    #  context: ./services/splunk
+    #  dockerfile: Dockerfile
+    image: splunk/splunk:9.1
     container_name: siem_central
     hostname: splunk-siem
     restart: unless-stopped
+
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.8
       monitoring_net:
         ipv4_address: 172.20.4.8
     ports:
+      #ponte che permette al tuo browser di comunicare con il server web di Splunk che gira nel container.
       - "8000:8000"   # Web UI
-      - "8088:8088"   # HTTP Event Collector (HEC)
-      - "8089:8089"   # Management port
+      # Rimosse 8088 (HEC) e 8089 (API REST) dalle porte esterne:
+      # Snort, Envoy e OPA ci comunicheranno usando la rete interna Docker, bloccando attacchi esterni.
+      #- "8088:8088"   # HTTP Event Collector (HEC)
+      #- "8089:8089"   # Management port
     volumes:
       - splunk_data:/opt/splunk/var
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
+      #  in sola lettura il volume dove MongoDB scrive i log di audit JSON
+      - mongo_audit_logs:/var/log/mongodb
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+      - SPLUNK_ROLE=splunk_standalone
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8088/services/collector/health"]
+      #test: ["CMD", "curl", "-f", "http://localhost:8088/services/collector/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -56,28 +65,37 @@ services:
   # ============================================================================
 
   db_primary:
-    build:
-      context: ./services/mongodb
-      dockerfile: Dockerfile
+  #  build:
+  #    context: ./services/mongodb
+  #    dockerfile: Dockerfile
+    image: mongo:7.0
     container_name: db_primary
     hostname: mongo-primary
     restart: unless-stopped
+    # Isolamento Zero Trust
     networks:
       backend_net:
         ipv4_address: 172.20.3.5
     ports:
       - "27017:27017"
     volumes:
+      # Volume per la persistenza fisica dei dati
       - mongo_data:/data/db
       - mongo_config:/data/configdb
+      # Chiavi crittografiche per connessione TLS (Sola lettura)
       - ./certs/server:/certs:ro
+      # Configurazione di sicurezza (Sola lettura)
       - ./configs/mongodb/mongod.conf:/etc/mongod.conf:ro
+      # Montaggio degli script in configs/mongodb/init-scripts
       - ./configs/mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
+      # Volume per tentativi di accesso, query effettuate o bloccate (da inviare al SIEM)
+      - mongo_audit_logs:/var/log/mongodb
+
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
-    command: ["mongod", "--config", "/etc/mongod.conf"]
+
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
