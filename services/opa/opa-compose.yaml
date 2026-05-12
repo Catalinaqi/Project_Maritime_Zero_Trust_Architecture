@@ -1,0 +1,21 @@
+services:
+  opa:
+    image: openpolicyagent/opa:latest-envoy
+    container_name: opa_pdp
+    working_dir: /usr/share/opa-app
+    ports:
+      - "8181:8181"     # Porta REST (per management/ispezione)
+      - "9191:9191"     # Porta gRPC (per Envoy)
+    volumes:
+      - ${PROJECT_ROOT}/configs/opa/config.yaml:/config.yaml:ro     # Configurazione di OPA
+      - ${PROJECT_ROOT}/configs/opa/policies:/policies:ro       # Le policy da caricare
+    command:
+      - "run"
+      - "--server"
+      - "--config-file=./config.yaml"
+      - "--log-level=debug"     # Per vedere più dettagli nei log, utile per il debugging
+      - "/policies"     # Carica tutti i file .rego presenti nella cartella
+
+volumes:
+  opa-config:
+  opa-policies:
