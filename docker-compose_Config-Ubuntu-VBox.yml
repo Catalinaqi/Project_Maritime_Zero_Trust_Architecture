@@ -1,55 +1,39 @@
-#version: '3.8'
+version: '3.8'
 
 # ==============================================================================
 # Maritime Zero Trust Architecture - Docker Compose
 # 12 Services: 7 Core + 5 Testing Clients
-# ==============================================================================
-# UPDATED: Fixed for Docker Desktop (Windows/Mac)
-# - Removed network_mode: host (doesn't work on Docker Desktop)
-# - Added static IPs for all services
-# - Firewall and IDS now use bridge networks
 # ==============================================================================
 
 services:
   # ============================================================================
   # LAYER 4: OBSERVABILITY - SIEM (Must start first for log aggregation)
   # ============================================================================
-
+  
   siem_central:
-    #build:
-    #  context: ./services/splunk
-    #  dockerfile: Dockerfile
-    image: splunk/splunk:9.1
+    build:
+      context: ./services/splunk
+      dockerfile: Dockerfile
     container_name: siem_central
     hostname: splunk-siem
     restart: unless-stopped
-
     networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.8
-      monitoring_net:
-        ipv4_address: 172.20.4.8
+      - zerotrust_net
+      - monitoring_net
     ports:
-      #ponte che permette al tuo browser di comunicare con il server web di Splunk che gira nel container.
       - "8000:8000"   # Web UI
-      # Rimosse 8088 (HEC) e 8089 (API REST) dalle porte esterne:
-      # Snort, Envoy e OPA ci comunicheranno usando la rete interna Docker, bloccando attacchi esterni.
-      #- "8088:8088"   # HTTP Event Collector (HEC)
-      #- "8089:8089"   # Management port
+      - "8088:8088"   # HTTP Event Collector (HEC)
+      - "8089:8089"   # Management port
     volumes:
       - splunk_data:/opt/splunk/var
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
-      #  in sola lettura il volume dove MongoDB scrive i log di audit JSON
-      - mongo_audit_logs:/var/log/mongodb
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-      - SPLUNK_ROLE=splunk_standalone
     healthcheck:
-      #test: ["CMD", "curl", "-f", "http://localhost:8088/services/collector/health"]
-      test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
+      test: ["CMD", "curl", "-f", "http://localhost:8088/services/collector/health"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -63,39 +47,29 @@ services:
   # ============================================================================
   # LAYER 4: DATA - MongoDB Primary Database
   # ============================================================================
-
+  
   db_primary:
-  #  build:
-  #    context: ./services/mongodb
-  #    dockerfile: Dockerfile
-    image: mongo:7.0
+    build:
+      context: ./services/mongodb
+      dockerfile: Dockerfile
     container_name: db_primary
     hostname: mongo-primary
     restart: unless-stopped
-    # Isolamento Zero Trust
     networks:
-      backend_net:
-        ipv4_address: 172.20.3.5
+      - backend_net
     ports:
       - "27017:27017"
     volumes:
-      # Volume per la persistenza fisica dei dati
       - mongo_data:/data/db
       - mongo_config:/data/configdb
-      # Chiavi crittografiche per connessione TLS (Sola lettura)
       - ./certs/server:/certs:ro
-      # Configurazione di sicurezza (Sola lettura)
       - ./configs/mongodb/mongod.conf:/etc/mongod.conf:ro
-      # Montaggio degli script in configs/mongodb/init-scripts
       - ./configs/mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
-      # Volume per tentativi di accesso, query effettuate o bloccate (da inviare al SIEM)
-      - mongo_audit_logs:/var/log/mongodb
-
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
-
+    command: ["mongod", "--config", "/etc/mongod.conf"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -111,7 +85,7 @@ services:
   # ============================================================================
   # LAYER 4: DATA - Database Seeder (One-shot initialization)
   # ============================================================================
-
+  
   db_seeder:
     build:
       context: ./services/mongodb
@@ -143,7 +117,7 @@ services:
   # ============================================================================
   # LAYER 3: DECISION - OPA Policy Engine (PDP)
   # ============================================================================
-
+  
   pdp_engine:
     build:
       context: ./services/opa
@@ -152,8 +126,7 @@ services:
     hostname: opa-policy
     restart: unless-stopped
     networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.6
+      - zerotrust_net
     ports:
       - "8181:8181"
     volumes:
@@ -191,7 +164,7 @@ services:
   # ============================================================================
   # LAYER 2: ENFORCEMENT - Envoy Proxy (PEP)
   # ============================================================================
-
+  
   pep_gateway:
     build:
       context: ./services/envoy
@@ -200,12 +173,9 @@ services:
     hostname: envoy-gateway
     restart: unless-stopped
     networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.7
-      backend_net:
-        ipv4_address: 172.20.3.7
-      clients_net:
-        ipv4_address: 172.20.5.7
+      - zerotrust_net
+      - backend_net
+      - clients_net
     ports:
       - "8443:8443"   # mTLS listener
       - "9901:9901"   # Admin interface
@@ -241,7 +211,7 @@ services:
   # ============================================================================
   # LAYER 1: NETWORK SECURITY - NFTables Firewall
   # ============================================================================
-
+  
   firewall_perimeter:
     build:
       context: ./services/nftables
@@ -249,23 +219,16 @@ services:
     container_name: firewall_perimeter
     hostname: nft-firewall
     restart: unless-stopped
-    networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.10
-      backend_net:
-        ipv4_address: 172.20.3.10
-      monitoring_net:
-        ipv4_address: 172.20.4.10
+    network_mode: host
     cap_add:
       - NET_ADMIN
     volumes:
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
       - nftables_logs:/var/log/nftables
     environment:
-      - ENVOY_IP=172.20.2.7
-      - MONGODB_IP=172.20.3.5
-      - SPLUNK_IP=172.20.2.8
-      - OPA_IP=172.20.2.6
+      - ENVOY_PORT=8443
+      - MONGODB_PORT=27017
+      - SPLUNK_PORT=8088
     logging:
       driver: "json-file"
       options:
@@ -275,7 +238,7 @@ services:
   # ============================================================================
   # LAYER 1: NETWORK SECURITY - Snort IDS
   # ============================================================================
-
+  
   ids_network_monitor:
     build:
       context: ./services/snort
@@ -283,15 +246,7 @@ services:
     container_name: ids_network_monitor
     hostname: snort-ids
     restart: unless-stopped
-    networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.11
-      backend_net:
-        ipv4_address: 172.20.3.11
-      monitoring_net:
-        ipv4_address: 172.20.4.11
-      clients_net:
-        ipv4_address: 172.20.5.11
+    network_mode: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -301,8 +256,7 @@ services:
       - snort_logs:/var/log/snort
     environment:
       - INTERFACE=eth0
-      - HOME_NET=172.20.0.0/16
-      - SPLUNK_HEC_URL=http://172.20.2.8:8088/services/collector
+      - SPLUNK_HEC_URL=http://localhost:8088/services/collector
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
     depends_on:
       siem_central:
@@ -317,7 +271,7 @@ services:
   # TESTING CLIENTS - Profile: "testing"
   # Only started with: docker compose --profile testing up
   # ============================================================================
-
+  
   client_corporate:
     build:
       context: ./services/clients
@@ -329,8 +283,7 @@ services:
     hostname: client-corporate
     restart: "no"
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.20
+      - clients_net
     volumes:
       - ./services/clients/scripts:/scripts:ro
       - ./certs/clients/corporate:/certs:ro
@@ -362,8 +315,7 @@ services:
     hostname: client-vpn-remote
     restart: "no"
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.21
+      - clients_net
     volumes:
       - ./services/clients/scripts:/scripts:ro
       - ./certs/clients/vpn_remote:/certs:ro
@@ -390,8 +342,7 @@ services:
     hostname: client-satellite
     restart: "no"
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.22
+      - clients_net
     volumes:
       - ./services/clients/scripts:/scripts:ro
       - ./certs/clients/satellite:/certs:ro
@@ -418,8 +369,7 @@ services:
     hostname: client-foreign
     restart: "no"
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.23
+      - clients_net
     volumes:
       - ./services/clients/scripts:/scripts:ro
       - ./certs/clients/foreign_agent:/certs:ro
@@ -446,8 +396,7 @@ services:
     hostname: client-public
     restart: "no"
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.24
+      - clients_net
     volumes:
       - ./services/clients/scripts:/scripts:ro
       - ./certs/clients/public_wifi:/certs:ro
@@ -474,7 +423,7 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_ZTA_SUBNET:-172.20.2.0/24}
-
+  
   backend_net:
     driver: bridge
     name: maritime-zta_backend
@@ -482,14 +431,14 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
-
+  
   monitoring_net:
     driver: bridge
     name: maritime-zta_monitoring
     ipam:
       config:
         - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
-
+  
   clients_net:
     driver: bridge
     name: maritime-zta_clients
@@ -505,27 +454,27 @@ volumes:
   mongo_data:
     name: maritime-zta_mongo_data
     driver: local
-
+  
   mongo_config:
     name: maritime-zta_mongo_config
     driver: local
-
+  
   splunk_data:
     name: maritime-zta_splunk_data
     driver: local
-
+  
   splunk_etc:
     name: maritime-zta_splunk_etc
     driver: local
-
+  
   envoy_logs:
     name: maritime-zta_envoy_logs
     driver: local
-
+  
   nftables_logs:
     name: maritime-zta_nftables_logs
     driver: local
-
+  
   snort_logs:
     name: maritime-zta_snort_logs
     driver: local

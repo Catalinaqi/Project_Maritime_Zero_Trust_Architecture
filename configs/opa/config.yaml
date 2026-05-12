@@ -1,0 +1,13 @@
+# opa-conf.yaml
+services:
+  # Se volessi scaricare le policy da un server remoto, lo definiresti qui.
+  # Per ora le carichiamo localmente.
+  {}
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: :9191
+    path: envoy/authz/allow # Il percorso della regola che restituisce true/false
+
+decision_logs:
+  console: true # Utile per il debugging: vedi le decisioni nel log del container
