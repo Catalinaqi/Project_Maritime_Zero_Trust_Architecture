@@ -25,6 +25,8 @@ services:
     restart: unless-stopped
 
     networks:
+      backend_net:
+        ipv4_address: 172.20.3.8
       zerotrust_net:
         ipv4_address: 172.20.2.8
       monitoring_net:
@@ -112,33 +114,6 @@ services:
   # LAYER 4: DATA - Database Seeder (One-shot initialization)
   # ============================================================================
 
-  db_seeder:
-    build:
-      context: ./services/mongodb
-      dockerfile: Dockerfile
-    container_name: db_seeder
-    hostname: mongo-seeder
-    restart: "no"
-    networks:
-      - backend_net
-    volumes:
-      - ./configs/mongodb/seed:/seed:ro
-      - ./certs/server:/certs:ro
-    environment:
-      - MONGO_HOST=db_primary
-      - MONGO_PORT=27017
-      - MONGO_ROOT_USER=${MONGO_ROOT_USER}
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-      - MONGO_DATABASE=${MONGO_DATABASE}
-    command: ["seed"]
-    depends_on:
-      db_primary:
-        condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
 
   # ============================================================================
   # LAYER 3: DECISION - OPA Policy Engine (PDP)
@@ -508,6 +483,10 @@ volumes:
 
   mongo_config:
     name: maritime-zta_mongo_config
+    driver: local
+
+  mongo_audit_logs:
+    name: maritime-zta_mongo_audit_logs
     driver: local
 
   splunk_data:
