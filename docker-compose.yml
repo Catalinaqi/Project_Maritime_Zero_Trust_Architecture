@@ -1,14 +1,33 @@
 #version: '3.8'
 
-# ==============================================================================
-# Maritime Zero Trust Architecture - Docker Compose
-# 12 Services: 7 Core + 5 Testing Clients
-# ==============================================================================
-# UPDATED: Fixed for Docker Desktop (Windows/Mac)
-# - Removed network_mode: host (doesn't work on Docker Desktop)
-# - Added static IPs for all services
-# - Firewall and IDS now use bridge networks
-# ==============================================================================
+# ============================================
+# Maritime - Zero Trust Architecture - Docker Compose
+# ============================================
+# Project: Maritime - Zero Trust Architecture (ZTA)
+# Author: Person 1 - Network Guardian (Snort/IDS)
+#         Person 2 - Envoy Manager (PEP)
+#         Person 3 - Policy Engineer (OPA)
+#         Person 4 - Data/SOC Operator (MongoDB/Splunk)
+# Component: Orchestration & Network Segmentation
+# Purpose: Define and orchestrate all 12 Docker services
+#          with Zero Trust network isolation (4 trust zones)
+# Data Creation: 2026-05-08
+# Last Updated: 2026-05-15
+# ============================================
+# Security Model:
+#   - Layer 1: Network Security (NFTables + Snort IDS)
+#   - Layer 2: Enforcement (Envoy mTLS proxy)
+#   - Layer 3: Decision (OPA policy engine)
+#   - Layer 4: Data & Observability (MongoDB + Splunk)
+#   - Clients: 5 testing profiles (corporate, VPN, satellite,
+#              foreign agent, public WiFi)
+# ============================================
+# Network Zones:
+#   clients_net   (172.20.5.0/24)  – Client entry point
+#   zerotrust_net (172.20.2.0/24)  – Core ZTA processing
+#   backend_net   (172.20.3.0/24)  – Isolated data storage
+#   monitoring_net(172.20.4.0/24)  – Security logs & alerts
+# ============================================
 
 services:
   # ============================================================================
@@ -27,6 +46,8 @@ services:
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.8
+      backend_net:
+        ipv4_address: 172.20.3.8
       monitoring_net:
         ipv4_address: 172.20.4.8
     ports:
@@ -112,33 +133,6 @@ services:
   # LAYER 4: DATA - Database Seeder (One-shot initialization)
   # ============================================================================
 
-  db_seeder:
-    build:
-      context: ./services/mongodb
-      dockerfile: Dockerfile
-    container_name: db_seeder
-    hostname: mongo-seeder
-    restart: "no"
-    networks:
-      - backend_net
-    volumes:
-      - ./configs/mongodb/seed:/seed:ro
-      - ./certs/server:/certs:ro
-    environment:
-      - MONGO_HOST=db_primary
-      - MONGO_PORT=27017
-      - MONGO_ROOT_USER=${MONGO_ROOT_USER}
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-      - MONGO_DATABASE=${MONGO_DATABASE}
-    command: ["seed"]
-    depends_on:
-      db_primary:
-        condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
 
   # ============================================================================
   # LAYER 3: DECISION - OPA Policy Engine (PDP)
@@ -154,6 +148,8 @@ services:
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.6
+      monitoring_net:
+        ipv4_address: 172.20.4.6
     ports:
       - "8181:8181"
     volumes:
@@ -250,6 +246,8 @@ services:
     hostname: nft-firewall
     restart: unless-stopped
     networks:
+      clients_net:
+        ipv4_address: 172.20.5.10
       zerotrust_net:
         ipv4_address: 172.20.2.10
       backend_net:
@@ -264,7 +262,7 @@ services:
     environment:
       - ENVOY_IP=172.20.2.7
       - MONGODB_IP=172.20.3.5
-      - SPLUNK_IP=172.20.2.8
+      - SPLUNK_IP=172.20.4.8
       - OPA_IP=172.20.2.6
     logging:
       driver: "json-file"
@@ -278,40 +276,47 @@ services:
 
   ids_network_monitor:
     build:
-      context: ./services/snort
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/snort/Dockerfile
     container_name: ids_network_monitor
     hostname: snort-ids
     restart: unless-stopped
     networks:
+      clients_net:
+        ipv4_address: 172.20.5.11
       zerotrust_net:
         ipv4_address: 172.20.2.11
       backend_net:
         ipv4_address: 172.20.3.11
       monitoring_net:
         ipv4_address: 172.20.4.11
-      clients_net:
-        ipv4_address: 172.20.5.11
     cap_add:
       - NET_ADMIN
       - NET_RAW
     volumes:
-      - ./configs/snort/snort.conf:/etc/snort/snort.conf:ro
+      # Update to .conf to .lua
+      - ./configs/snort/snort.lua:/etc/snort/snort.lua:ro
       - ./configs/snort/rules:/etc/snort/rules:ro
       - snort_logs:/var/log/snort
     environment:
-      - INTERFACE=eth0
+      # LAYER 1: NETWORK SECURITY - Snort IDS (monitors all 4 trust zones)
+      # eth0: clients_net | Client traffic (corporate, VPN, satellite, foreign agent, public WiFi). Capture real attacks from clients (port scanning, SQLi, etc.).
+      # eth1: zerotrust_net | ZTA network traffic (Envoy, OPA, Splunk, Firewall). Captures internal communications (requests to Envoy, OPA decisions, Splunk logs).
+      # eth2: backend_net | Backend network traffic (MongoDB, audit logs). Captures direct access attempts to MongoDB that should be blocked by the firewall.
+      # eth3: monitoring_net | Monitoring network traffic (logs and alerts). Captures the flow of logs from services to Splunk.
+      - INTERFACE=eth0:eth1:eth2:eth3
       - HOME_NET=172.20.0.0/16
       - SPLUNK_HEC_URL=http://172.20.2.8:8088/services/collector
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
     depends_on:
       siem_central:
-        condition: service_healthy
+        condition: service_started #p1-snort prod:service_healthy/dev:service_started
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    entrypoint: ["/bin/bash", "-c", "sleep infinity"]
 
   # ============================================================================
   # TESTING CLIENTS - Profile: "testing"
@@ -464,17 +469,57 @@ services:
       - testing
 
 # ==============================================================================
-# NETWORKS - Segmented by Security Layer
+# NETWORKS - Segmented by Security Layer (Zero Trust Isolation)
+# ==============================================================================
+# Purpose: Each network represents a different trust zone in the Zero Trust
+# architecture. Services are placed in networks according to their function:
+#
+# +------------------+-------------------+-----------------------------------+
+# | Network          | Security Layer     | Services & Purpose                |
+# +------------------+-------------------+-----------------------------------+
+# | clients_net      | Client Access     | Corporate, VPN, Satellite,        |
+# | (172.20.5.0/24)  | Layer             | Foreign agents, Public WiFi       |
+# |                  |                   | - All client traffic originates   |
+# |                  |                   |   from this network               |
+# |                  |                   | - mTLS required to reach Envoy    |
+# +------------------+-------------------+-----------------------------------+
+# | zerotrust_net    | L2 Enforcement    | Envoy (PEP), OPA (PDP), Splunk,   |
+# | (172.20.2.0/24)  | + L3 Decision     | Snort, Firewall - Core ZTA plane  |
+# |                  |                   | where mTLS and policy decisions   |
+# |                  |                   | are enforced.                      |
+# +------------------+-------------------+-----------------------------------+
+# | backend_net      | L4 Data Store     | MongoDB, Splunk (audit logs)      |
+# | (172.20.3.0/24)  | (Internal Only)   | - Isolated from external access   |
+# |                  |                   | - Only Envoy can reach MongoDB    |
+# |                  |                   | - Network marked 'internal: true' |
+# +------------------+-------------------+-----------------------------------+
+# | monitoring_net   | L1+L4 Observ.     | Splunk (SIEM), Firewall, Snort    |
+# | (172.20.4.0/24)  |                   | - All security logs are sent here |
+# |                  |                   | - Snort alerts, nftables logs,    |
+# |                  |                   |   and audit data converge         |
+# +------------------+-------------------+-----------------------------------+
+# Traffic Flow Rules (simplified):
+#   clients_net -> zerotrust_net -> Envoy (port 8443) -> backend_net -> MongoDB
+#                                                                     -> Splunk
+#   All security logs from Snort, nftables, Envoy, OPA flow to monitoring_net
 # ==============================================================================
 
 networks:
+  # First network (customer entry)
+  clients_net:
+    driver: bridge
+    name: maritime-zta_clients
+    ipam:
+      config:
+        - subnet: ${NETWORK_CLIENTS_SUBNET:-172.20.5.0/24}
+  # Processing network (Envoy, OPA, Splunk, Snort, Firewall)
   zerotrust_net:
     driver: bridge
     name: maritime-zta_zerotrust
     ipam:
       config:
         - subnet: ${NETWORK_ZTA_SUBNET:-172.20.2.0/24}
-
+  # Data network (MongoDB, Splunk logs)
   backend_net:
     driver: bridge
     name: maritime-zta_backend
@@ -482,20 +527,13 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
-
+  # Observation network (logs and alerts)
   monitoring_net:
     driver: bridge
     name: maritime-zta_monitoring
     ipam:
       config:
         - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
-
-  clients_net:
-    driver: bridge
-    name: maritime-zta_clients
-    ipam:
-      config:
-        - subnet: ${NETWORK_CLIENTS_SUBNET:-172.20.5.0/24}
 
 # ==============================================================================
 # VOLUMES - Persistent Storage
@@ -508,6 +546,10 @@ volumes:
 
   mongo_config:
     name: maritime-zta_mongo_config
+    driver: local
+
+  mongo_audit_logs:
+    name: maritime-zta_mongo_audit_logs
     driver: local
 
   splunk_data:

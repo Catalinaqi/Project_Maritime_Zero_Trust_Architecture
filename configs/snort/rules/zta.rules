@@ -1,0 +1,190 @@
+# ============================================
+# ZTA Custom Rules - Snort 3 IDS
+# ============================================
+# Project: Adria Ferries Maritime Security
+# Author: Persona 1 - Network Guardian
+# Component: Layer 1 Intrusion Detection System
+# Purpose: Detect and alert on 15 attack types
+# Data Creation: 2026-05-11
+# Last Updated: 2026-05-15 (fixed: Snort 3 syntax)
+# ============================================
+# FIXES APPLIED:
+#   - tcp.flags:X  -> flags:X;          (Snort 3 syntax)
+#   - threshold:.. -> detection_filter: (Snort 3 syntax)
+#   - $HOME_NET    -> works via ips.variables = default_variables in snort.lua
+# ============================================
+
+# ============================================================
+# CATEGORY 1: PORT SCANNING (SID 1000001 - 1000003)
+# ============================================================
+
+# Rule 1: TCP SYN port scan detection
+alert tcp any any -> $HOME_NET any (
+    msg:"[ZTA-001] TCP SYN Port Scan Detected - Reconnaissance in progress";
+    flags:S;
+    detection_filter:track by_src, count 20, seconds 60;
+    sid:1000001;
+    rev:1;
+    priority:2;
+)
+
+# Rule 2: UDP port scan detection
+alert udp any any -> $HOME_NET any (
+    msg:"[ZTA-002] UDP Port Scan Detected - Possible reconnaissance";
+    detection_filter:track by_src, count 20, seconds 60;
+    sid:1000002;
+    rev:1;
+    priority:2;
+)
+
+# Rule 3: Stealth scan detection (NULL, FIN, XMAS)
+alert tcp any any -> $HOME_NET any (
+    msg:"[ZTA-003] Stealth Scan Detected (NULL/FIN/XMAS) - Advanced reconnaissance";
+    flags:!APRUSF12;
+    sid:1000003;
+    rev:1;
+    priority:1;
+)
+
+# ============================================================
+# CATEGORY 2: SQL INJECTION (SID 1000004 - 1000006)
+# ============================================================
+
+# Rule 4: UNION SELECT injection
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-004] SQL Injection Attempt: UNION SELECT";
+    flow:to_server,established;
+    content:"union", nocase;
+    content:"select", nocase, within:100;
+    sid:1000004;
+    rev:1;
+    priority:1;
+)
+
+# Rule 5: OR 1=1 injection
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-005] SQL Injection Attempt: OR 1=1 Bypass";
+    flow:to_server,established;
+    pcre:"/(\%27)|(\')|(\-\-)|(\%23)|(#)/i";
+    content:"or", nocase;
+    content:"1=1", nocase, dwithin:100;
+    sid:1000005;
+    rev:1;
+    priority:1;
+)
+
+# Rule 6: DROP TABLE / data destruction
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-006] SQL Injection Attempt: DROP TABLE/Data Destruction";
+    flow:to_server,established;
+    content:"drop", nocase;
+    pcre:"/drop\s+(table|database|index|procedure)/i";
+    sid:1000006;
+    rev:1;
+    priority:1;
+)
+
+# ============================================================
+# CATEGORY 3: DIRECT DATABASE ACCESS (SID 1000007 - 1000008)
+# ============================================================
+
+# Rule 7: Direct TCP connection to MongoDB port
+alert tcp any any -> 172.20.3.5 27017 (
+    msg:"[ZTA-007] DIRECT MongoDB Connection Attempt - Firewall bypass suspected";
+    flags:S;
+    sid:1000007;
+    rev:1;
+    priority:1;
+)
+
+# Rule 8: MongoDB wire protocol detection
+alert tcp any any -> $HOME_NET any (
+    msg:"[ZTA-008] MongoDB Wire Protocol Detected - Possible data exfiltration";
+    flow:to_server,established;
+    content:"|d4 07 00 00|";
+    sid:1000008;
+    rev:1;
+    priority:2;
+)
+
+# ============================================================
+# CATEGORY 4: TLS/CERTIFICATE ANOMALIES (SID 1000009 - 1000011)
+# ============================================================
+
+# Rule 9: Unencrypted HTTP on TLS port
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-009] Unencrypted HTTP on TLS Port - Possible MITM or misconfiguration";
+    flow:to_server,established;
+    content:"GET", offset:0, depth:3;
+    sid:1000009;
+    rev:1;
+    priority:1;
+)
+
+# Rule 10: TLS Heartbleed attack signature
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-010] TLS Heartbleed Attack - Memory leakage attempt";
+    flow:to_server,established;
+    content:"|18 03|", offset:0, depth:2;
+    sid:1000010;
+    rev:1;
+    priority:1;
+)
+
+# Rule 11: SSL/TLS protocol downgrade
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-011] TLS Version Downgrade Attack - Weak protocol detected";
+    flow:to_server,established;
+    content:"|16 03|", offset:0, depth:2;
+    sid:1000011;
+    rev:2;
+    priority:2;
+)
+
+# ============================================================
+# CATEGORY 5: LATERAL MOVEMENT (SID 1000012 - 1000013)
+# ============================================================
+
+# Rule 12: Client-to-client TCP connection in clients_net
+alert tcp 172.20.5.0/24 any -> 172.20.5.0/24 any (
+    msg:"[ZTA-012] Lateral Movement: Client-to-client connection in clients_net";
+    flags:S;
+    sid:1000012;
+    rev:1;
+    priority:1;
+)
+
+# Rule 13: SSH brute force detection
+alert tcp any any -> $HOME_NET 22 (
+    msg:"[ZTA-013] SSH Brute Force Attack - Possible credential stuffing";
+    flow:to_server,established;
+    detection_filter:track by_src, count 5, seconds 60;
+    sid:1000013;
+    rev:1;
+    priority:1;
+)
+
+# ============================================================
+# CATEGORY 6: DDoS AND RESOURCE EXHAUSTION (SID 1000014 - 1000015)
+# ============================================================
+
+# Rule 14: SYN flood detection
+alert tcp any any -> $HOME_NET any (
+    msg:"[ZTA-014] SYN Flood Attack - Possible DDoS in progress";
+    flags:S;
+    detection_filter:track by_dst, count 100, seconds 10;
+    sid:1000014;
+    rev:1;
+    priority:1;
+)
+
+# Rule 15: HTTP Slowloris attack detection
+alert tcp any any -> $HOME_NET 8443 (
+    msg:"[ZTA-015] HTTP Slowloris Attack - Resource exhaustion attempt";
+    flow:to_server,established;
+    content:"POST", offset:0, depth:4;
+    detection_filter:track by_src, count 50, seconds 60;
+    sid:1000015;
+    rev:1;
+    priority:1;
+)

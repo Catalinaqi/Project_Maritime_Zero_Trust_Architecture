@@ -39,7 +39,7 @@ RUN mkdir -p /etc/nftables /var/log/nftables
 # ============================================
 # Layer 3: Copy entrypoint script
 # ============================================
-COPY entrypoint.sh /entrypoint.sh
+COPY entrypoint-nftables.sh /entrypoint.sh
 
 # Ensure entrypoint is executable
 RUN chmod +x /entrypoint.sh \

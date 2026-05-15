@@ -308,7 +308,7 @@ tar -xzf Project_Maritime_Zero_Trust_Architecture.tar.gz
 cd Project_Maritime_Zero_Trust_Architecture
 
 # 2. Read documentation
-cat README.md
+cat CONFIG_NFTABLES.md
 cat CHECKLIST.md
 
 # 3. Install dependencies
