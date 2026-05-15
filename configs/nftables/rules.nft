@@ -1,378 +1,4 @@
-# 🔥 NFTables Firewall Configuration
-
-## Purpose
-Layer 1 Network Security using NFTables to enforce Zero Trust Architecture principles for Adria Ferries maritime operations.
-
-The firewall serves as the **first line of defense**, ensuring:
-- **Default DENY** - No traffic is trusted by default
-- **Single entry point** - All traffic must go through Envoy (PEP)
-- **MongoDB isolation** - Direct database access is strictly prohibited
-- **Defense in depth** - Independent security layer that works even if other layers fail
-
----
-
-## Network Topology
-
-### Docker Compose Networks (Updated for Docker Desktop)
-
-The new `docker-compose.yml` uses **4 segmented bridge networks** instead of `network_mode: host` (which doesn't work on Docker Desktop Windows/Mac).
-
-| Network | Subnet | Type | Access |
-|---------|--------|------|--------|
-| `zerotrust_net` | 172.20.2.0/24 | Bridge | Inter-service communication |
-| `backend_net` | 172.20.3.0/24 | **Internal** (isolated) | No external access |
-| `monitoring_net` | 172.20.4.0/24 | Bridge | Monitoring tools |
-| `clients_net` | 172.20.5.0/24 | Bridge | Client connections |
-
-### Service IP Addresses (Static)
-
-| IP Address | Service | Hostname | Network | Layer |
-|------------|---------|----------|---------|-------|
-| `172.20.2.8` | `siem_central` | Splunk SIEM | zerotrust_net, monitoring_net | Layer 4 |
-| `172.20.3.5` | `db_primary` | MongoDB Database | backend_net **(internal)** | Layer 4 |
-| `172.20.2.6` | `pdp_engine` | OPA Policy Engine | zerotrust_net | Layer 3 |
-| `172.20.2.7` | `pep_gateway` | Envoy Proxy (PEP) | zerotrust_net, backend_net, clients_net | Layer 2 |
-| **`172.20.2.10`** | **`firewall_perimeter`** | **NFTables Firewall** | **zerotrust_net, backend_net, monitoring_net** | **Layer 1** |
-| **`172.20.2.11`** | **`ids_network_monitor`** | **Snort IDS** | **zerotrust_net, backend_net, monitoring_net, clients_net** | **Layer 1** |
-
-### Firewall Network Interfaces
-
-The firewall is connected to 3 networks, each with its own virtual Ethernet interface inside the container:
-
-| Interface | Network | Subnet | Firewall IP | Purpose |
-|-----------|---------|--------|-------------|---------|
-| `eth0` | `zerotrust_net` | 172.20.2.0/24 | `172.20.2.10` | Public-facing services (Envoy, OPA, Splunk) |
-| `eth1` | `backend_net` | 172.20.3.0/24 | `172.20.3.10` | Database backend (MongoDB) |
-| `eth2` | `monitoring_net` | 172.20.4.0/24 | `172.20.4.10` | Monitoring and logging |
-
-> **Note**: The firewall acts as a **gateway between these networks**, forwarding allowed traffic between them (e.g., Envoy on zerotrust_net → MongoDB on backend_net via eth0→eth1).
-
-### Client IPs (Testing Profiles)
-
-| Client | IP | Network | Profile |
-|--------|----|---------|---------|
-| `client_corporate` | 172.20.5.20 | clients_net | testing |
-| `client_vpn_remote` | 172.20.5.21 | clients_net | testing |
-| `client_satellite` | 172.20.5.22 | clients_net | testing |
-| `client_foreign_agent` | 172.20.5.23 | clients_net | testing |
-| `client_public_wifi` | 172.20.5.24 | clients_net | testing |
-
----
-
-## Security Rules
-
-### Rule Categories
-
-#### 1. INPUT Chain (Traffic to Firewall)
-| Priority | Rule | Purpose |
-|----------|------|---------|
-| 1 | `iif lo accept` | Allow localhost communication |
-| 2 | `ct state established,related accept` | Allow return traffic |
-| 3 | `ip protocol icmp accept` | Allow ping diagnostics |
-| 4 | `log prefix ... drop` | Default deny with logging |
-
-#### 2. FORWARD Chain (Traffic Through Firewall)
-
-| Rule # | Rule | Purpose | Threat Mitigated |
-|--------|------|---------|-----------------|
-| **1** | `ct state established,related accept` | Stateful connection tracking | Performance optimization |
-| **2** | `tcp dport 8443 accept` | Allow traffic to Envoy (PEP) | Public entry point |
-| **3** | `ip saddr 172.20.2.7 tcp dport 27017 accept` | Allow Envoy → MongoDB | **Authorized database path** |
-| **3b** | `tcp dport 27017 ... log ... drop` | BLOCK all other MongoDB access | **Data exfiltration prevention** |
-| **4** | `ip saddr 172.20.2.7 tcp dport 8181 accept` | Allow Envoy → OPA | Authorized policy path |
-| **4b** | `tcp dport 8181 ... log ... drop` | BLOCK other OPA access | Policy bypass prevention |
-| **5** | `tcp dport 8088 accept` | Allow Splunk HEC | Log ingestion |
-| **5b** | `tcp dport 8089 accept` | Allow Splunk management | SIEM administration |
-| **6** | `ip protocol icmp accept` | Allow ICMP | Network diagnostics |
-| **7a** | `iif eth0 oif eth1 ip saddr 172.20.2.7 ip daddr 172.20.3.5 dport 27017` | Cross-network: Envoy→MongoDB | Envoy-&gt;MongoDB bridge routing |
-| **7b** | `iif eth2 oif eth0 ip saddr 172.20.4.0/24 ip daddr 172.20.2.8 dport 8088` | Cross-network: Monitoring→Splunk | Snort→Splunk log routing |
-| **8** | `log prefix ... drop` | Default deny fallback | Catch-all security |
-
-#### 3. OUTPUT Chain (Traffic from Firewall)
-| Priority | Rule | Purpose |
-|----------|------|---------|
-| 1 | `policy accept` | Allow all outbound traffic |
-
----
-
-## Data Flow Diagram
-
-```
-                    ╔═════════════════╗
-                    ║   CLIENTS_NET   ║
-                    ║  172.20.5.0/24  ║
-                    ╚═══════╤═════════╝
-                            │
-                            ▼
-              ┌─────────────────────────┐
-              │   zerotrust_net eth0     │
-              │   172.20.2.10            │
-              │  🛡️  FIREWALL            │
-              │  (NFTables - Layer 1)    │
-              │                          │
-              │  ├─ 8443  → ACCEPT  ─────┼──→ Envoy (PEP) 172.20.2.7:8443
-              │  ├─ 27017 → DROP*  ─────┼──→ ❌ Direct DB blocked
-              │  ├─ 8088  → ACCEPT ─────┼──→ Splunk (SIEM) 172.20.2.8:8088
-              │  ├─ 8181  → DROP** ─────┼──→ ❌ Direct OPA blocked
-              │  └─ other → DROP  ──────┼──→ ❌ Everything else
-              └──────┬──────────────────┘
-                     │
-          ┌──────────┴──────────┐
-          │                     │
-   eth1   ▼                     ▼   eth0
-  ┌──────────────┐   ┌──────────────────┐
-  │ backend_net  │   │  zerotrust_net   │
-  │ 172.20.3.0/24│   │  172.20.2.0/24   │
-  │  (internal)  │   │                  │
-  │              │   │  ┌────────────┐  │
-  │  MongoDB     │   │  │ Envoy(PEP) │  │
-  │  172.20.3.5  │◄──┼──│172.20.2.7  │  │
-  │              │   │  └────────────┘  │
-  │              │   │  ┌────────────┐  │
-  │              │   │  │ OPA (PDP)  │  │
-  │              │   │  │172.20.2.6  │  │
-  │              │   │  └────────────┘  │
-  │              │   │  ┌────────────┐  │
-  │              │   │  │Splunk(SIEM)│  │
-  │              │   │  │172.20.2.8  │  │
-  │              │   │  └────────────┘  │
-  └──────────────┘   └──────────────────┘
-                            │
-                     eth2   ▼
-                    ┌──────────────┐
-                    │monitoring_net│
-                    │172.20.4.0/24 │
-                    │              │
-                    │  Snort(IDS)  │
-                    │ 172.20.2.11  │
-                    │(also on eth0)│
-                    └──────────────┘
-
-* Only Envoy (172.20.2.7) can access MongoDB (172.20.3.5)
-** Only Envoy (172.20.2.7) can access OPA (172.20.2.6)
-```
-
----
-
-## Threat Model
-
-### Threats Mitigated by Firewall
-
-| Threat | Attack Vector | Firewall Rule | Additional Defense |
-|--------|--------------|---------------|-------------------|
-| **Direct Database Access** | Attacker connects to port 27017 | `tcp dport 27017 drop` | MongoDB TLS + RBAC |
-| **Port Scanning** | nmap scan to discover services | Default deny + logging | Snort detects scan patterns |
-| **Data Exfiltration** | Malicious insider tries to extract data | Only Envoy → MongoDB path allowed | OPA ABAC policies |
-| **Network Reconnaissance** | Probing for open ports | All ports closed except whitelisted | Logged to Splunk |
-| **Bypass PEP** | Attacker tries to reach OPA directly | `tcp dport 8181 drop` (non-Envoy) | OPA validate request origin |
-| **Lateral Movement** | Compromised container attacks others | Default deny between networks | Network segmentation |
-| **DDoS / SYN Flood** | Flood of connection requests | Stateful connection tracking | Snort SYN flood detection |
-| **Cross-network pivot** | Attacker on clients_net tries backend_net | backend_net is **internal** (no route) | Network isolation |
-
-### Attack Scenarios
-
-#### Scenario 1: Public WiFi Hacker
-```
-1. Hacker connects to ship's public WiFi (clients_net: 172.20.5.0/24)
-2. Hacker scans for open ports:
-   $ nmap -p 27017 172.20.3.5
-3. FIREWALL: Port 27017 filtered (DROP)
-4. backend_net is INTERNAL: clients_net cannot route to backend_net
-5. SNORT: Port scan detected on zerotrust_net → Alert to Splunk
-6. Result: ✅ Blocked + Alerted + Network isolation
-```
-
-#### Scenario 2: Compromised Service on zerotrust_net
-```
-1. Attacker compromises a non-Envoy container (e.g., OPA)
-2. Attempts to connect to MongoDB:
-   $ nc -zv 172.20.3.5 27017
-3. FIREWALL: Connection refused (DROP - IP != 172.20.2.7)
-4. FIREWALL: Log entry → [CRITICAL] DIRECT_DB_ATTEMPT
-5. SNORT: Detects MongoDB wire protocol → Alert
-6. Result: ✅ Multiple detection layers
-```
-
-#### Scenario 3: Data Exfiltration Attempt
-```
-1. Malicious insider with access to application layer
-2. Tries to bypass PEP and connect directly to MongoDB
-3. FIREWALL: Connection DROPPED (IP != 172.20.2.7)
-4. FIREWALL: Critical log sent to Splunk (172.20.2.8:8088)
-5. SPLUNK: Real-time alert to SOC team
-6. Result: ✅ Exfiltration prevented
-```
-
-#### Scenario 4: Cross-Network Pivot
-```
-1. Attacker compromises client on clients_net (172.20.5.x)
-2. Tries to pivot to backend_net (172.20.3.x) for MongoDB
-3. Docker: backend_net is "internal: true" - NO ROUTE from outside
-4. Even if route existed, firewall drops non-Envoy traffic
-5. Result: ✅ Network isolation prevents pivot
-```
-
----
-
-## Configuration Files
-
-| File | Purpose |
-|------|---------|
-| `rules.nft` | **Main ruleset** - Active firewall rules deployed to container |
-| `README.md` | **Documentation** - Strategy, architecture, and procedures |
-
-### File Locations
-- **Host**: `./configs/nftables/rules.nft`
-- **Container**: `/etc/nftables/rules.nft`
-- **Mount**: Read-only (`:ro`) to prevent runtime tampering
-- **Mount from compose**: `./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro`
-
----
-
-## Environment Variables
-
-The firewall container receives these environment variables from `docker-compose.yml`:
-
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `ENVOY_IP` | `172.20.2.7` | Envoy PEP IP address |
-| `MONGODB_IP` | `172.20.3.5` | MongoDB database IP |
-| `SPLUNK_IP` | `172.20.2.8` | Splunk SIEM IP |
-| `OPA_IP` | `172.20.2.6` | OPA Policy Engine IP |
-
-> **Note**: These environment variables are available in the entrypoint script for use in dynamic rule generation if needed. The current `rules.nft` has hardcoded IPs for simplicity and auditability.
-
----
-
-## Testing
-
-### Syntax Validation
-```bash
-# Validate NFTables syntax locally (requires nftables installed)
-nft -c -f configs/nftables/rules.nft
-
-# Validate within Docker container
-docker compose build firewall_perimeter
-docker compose run --rm firewall_perimeter nft -c -f /etc/nftables/rules.nft
-```
-
-### Rule Verification
-```bash
-# Start the firewall service
-docker compose up -d firewall_perimeter
-
-# List all active rules
-docker exec firewall_perimeter nft list ruleset
-
-# Test specific table
-docker exec firewall_perimeter nft list table inet filter
-
-# Monitor all NFTables events
-docker exec firewall_perimeter nft monitor
-```
-
-### Connectivity Tests
-
-```bash
-# Test 1: Direct MongoDB access (should FAIL - connection refused)
-docker exec firewall_perimeter timeout 2 bash -c 'echo > /dev/tcp/172.20.3.5/27017' && \
-  echo "❌ FAIL: MongoDB accessible directly!" || \
-  echo "✅ PASS: MongoDB blocked"
-
-# Test 2: Envoy access (should WORK)
-docker exec firewall_perimeter timeout 2 bash -c 'echo > /dev/tcp/172.20.2.7/8443' && \
-  echo "✅ PASS: Envoy reachable" || \
-  echo "❌ FAIL: Envoy not reachable"
-
-# Test 3: Splunk HEC access (should WORK)
-docker exec firewall_perimeter timeout 2 bash -c 'echo > /dev/tcp/172.20.2.8/8088' && \
-  echo "✅ PASS: Splunk HEC reachable" || \
-  echo "❌ FAIL: Splunk HEC not reachable"
-
-# Test 4: OPA access from non-Envoy (should FAIL)
-docker exec firewall_perimeter timeout 2 bash -c 'echo > /dev/tcp/172.20.2.6/8181' && \
-  echo "❌ FAIL: OPA accessible from firewall!" || \
-  echo "✅ PASS: OPA blocked from unauthorized source"
-```
-
-### Integration Tests
-```bash
-# Run full firewall test suite
-cd tests && poetry run pytest test_firewall.py -v
-
-# Run specific firewall test
-cd tests && poetry run pytest test_firewall.py::test_mongodb_blocked_from_external -v
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-| Problem | Symptom | Solution |
-|---------|---------|----------|
-| **Rules not loading** | Container starts but firewall inactive | Check syntax: `nft -c -f /etc/nftables/rules.nft` |
-| **Network connectivity lost** | No containers can communicate | Check for over-blocking: `nft list ruleset`; temporarily flush: `nft flush ruleset` |
-| **MongoDB unreachable even from Envoy** | Envoy cannot connect to DB | Verify Envoy IP matches 172.20.2.7: `docker inspect pep_gateway` |
-| **Cross-network traffic blocked** | Envoy→MongoDB fails | Check eth0→eth1 forwarding rules in FORWARD chain |
-| **Duplicate rules** | Slow performance, warnings | Flush ruleset: `nft flush ruleset` then reload |
-| **Logs not reaching Splunk** | No firewall logs in Splunk | Check HEC token: `docker logs siem_central`; verify eth2 routing |
-| **Docker Desktop limitations** | Some nft features missing | Use `iptables-legacy` as fallback; ensure `NET_ADMIN` capability |
-
-### Docker Desktop Specific Issues
-
-Docker Desktop (Windows/Mac) runs containers in a VM, which means:
-- `network_mode: host` does NOT work (removed from new compose)
-- `NET_ADMIN` capability works inside the container's network namespace
-- The firewall can filter traffic on its bridge networks but NOT host traffic
-- All services use **static IPs** on Docker bridge networks
-
-### Emergency Rollback
-```bash
-# If firewall misconfiguration blocks all traffic:
-
-# Option 1: Restart without firewall
-docker compose stop firewall_perimeter
-docker compose up -d  # Other services start without firewall
-
-# Option 2: Manually flush rules
-docker exec firewall_perimeter nft flush ruleset
-docker exec firewall_perimeter nft list ruleset  # Should be empty
-
-# Option 3: Reload correct rules
-docker exec firewall_perimeter nft -f /etc/nftables/rules.nft
-
-# Option 4: Rebuild and restart
-docker compose build firewall_perimeter
-docker compose up -d firewall_perimeter
-```
-
-### Debugging
-```bash
-# Monitor dropped packets in real-time
-docker exec firewall_perimeter nft monitor trace
-
-# Check NFTables logs
-docker logs firewall_perimeter
-
-# Verify connection tracking table
-docker exec firewall_perimeter cat /proc/net/nf_conntrack
-
-# List all tables and chains
-docker exec firewall_perimeter nft list tables
-docker exec firewall_perimeter nft list chains
-
-# Check network interfaces inside container
-docker exec firewall_perimeter ip addr
-docker exec firewall_perimeter ip route
-```
-
----
-
-## Monitoring & Metrics
-
-### Key Metrics to Track#!/usr/sbin/nft -f
+#!/usr/sbin/nft -f
 
 # ============================================
 # NFTables Firewall Rules - Zero Trust Architecture
@@ -391,10 +17,10 @@ docker exec firewall_perimeter ip route
 #   - Defense in depth: Layer 1 of 4
 # ============================================
 # Network Segmentation (Docker Bridge Networks):
-#   zerotrust_net:  172.20.2.0/24
-#   backend_net:   172.20.3.0/24 (internal - no external access)
-#   monitoring_net: 172.20.4.0/24
-#   clients_net:   172.20.5.0/24
+#   zerotrust_net:  172.20.2.0/24  (interface eth0)
+#   backend_net:   172.20.3.0/24  (interface eth1, internal)
+#   monitoring_net: 172.20.4.0/24 (interface eth2)
+#   clients_net:   172.20.5.0/24  (not directly connected)
 # ============================================
 # Service IP Addresses:
 #   172.20.2.8  - siem_central    (Splunk)  [zerotrust_net]
@@ -430,7 +56,7 @@ table inet filter {
 
         # CRITICAL: Allow loopback for local process communication
         # Snort, system monitoring, and health checks need localhost
-        iif lo accept
+iif lo accept
 
         # CRITICAL: Allow established/related connections to return
         # Without this, responses to outbound queries would be blocked
@@ -456,14 +82,14 @@ table inet filter {
         type filter hook forward priority 0; policy drop;
 
         # ============================================
-        # REGLA 1: Stateful connection tracking
+        # RULE 1: Stateful connection tracking
         # ============================================
         # Allow return traffic for established connections
         # Performance optimization: ~90% of traffic is established
         ct state established,related accept
 
         # ============================================
-        # REGLA 2: Allow traffic to Envoy Proxy (PEP)
+        # RULE 2: Allow traffic to Envoy Proxy (PEP)
         # ============================================
         # Port 8443 is the public entry point for ALL services
         # Envoy handles mTLS termination, JA3 fingerprinting,
@@ -473,7 +99,7 @@ table inet filter {
         tcp dport 8443 accept
 
         # ============================================
-        # REGLA 3: BLOQUEAR acceso directo a MongoDB
+        # RULE 3: BLOCK direct access to MongoDB
         # ============================================
         # CRITICAL SECURITY RULE: Prevent direct database access
         # In Zero Trust architecture, ALL database queries MUST
@@ -492,7 +118,7 @@ table inet filter {
         tcp dport 27017 log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " level crit drop
 
         # ============================================
-        # REGLA 4: Allow traffic to OPA Policy Engine (PDP)
+        # RULE 4: Allow traffic to OPA Policy Engine (PDP)
         # ============================================
         # Port 8181: OPA REST API for policy queries
         # Only Envoy should consult OPA for authorization decisions
@@ -502,7 +128,7 @@ table inet filter {
         tcp dport 8181 log prefix "[WARNING] UNAUTHORIZED_OPA_ACCESS: " level warn drop
 
         # ============================================
-        # REGLA 5: Allow traffic to Splunk SIEM
+        # RULE 5: Allow traffic to Splunk SIEM
         # ============================================
         # Port 8088: HTTP Event Collector (HEC) for log ingestion
         #   - Snort sends IDS alerts here
@@ -514,25 +140,25 @@ table inet filter {
         tcp dport 8089 accept
 
         # ============================================
-        # REGLA 6: Allow ICMP for network diagnostics
+        # RULE 6: Allow ICMP for network diagnostics
         # ============================================
         # Ping and traceroute essential for troubleshooting
         ip protocol icmp accept
         ip6 nexthdr ipv6-icmp accept
 
         # ============================================
-        # REGLA 7: Cross-network traffic rules (inter-container)
+        # RULE 7: Cross-network traffic rules (inter-container)
         # ============================================
-        # Allow traffic from zerotrust_net to backend_net for Envoy→MongoDB
+        # Allow traffic from zerotrust_net to backend_net for Envoy->MongoDB
         # This is needed because the firewall sits on both networks
-        iif "eth0" oif "eth1" ip saddr 172.20.2.7 ip daddr 172.20.3.5 tcp dport 27017 accept
+        iif eth0 oif eth1 ip saddr 172.20.2.7 ip daddr 172.20.3.5 tcp dport 27017 accept
 
         # Allow traffic from monitoring_net to zerotrust_net for logs
         # Snort (172.20.2.11) needs to send alerts to Splunk (172.20.2.8)
-        iif "eth2" oif "eth0" ip saddr 172.20.4.0/24 ip daddr 172.20.2.8 tcp dport 8088 accept
+        iif eth2 oif eth0 ip saddr 172.20.4.0/24 ip daddr 172.20.2.8 tcp dport 8088 accept
 
         # ============================================
-        # REGLA 8: Default deny with logging
+        # RULE 8: Default deny with logging
         # ============================================
         # Log all unmatched traffic for security monitoring
         # This helps identify:

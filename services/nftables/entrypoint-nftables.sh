@@ -128,7 +128,7 @@ load_rules() {
     if nft -f "${RULES_FILE}"; then
         log_info "NFTables rules loaded successfully."
         log_info "Security perimeter is ACTIVE."
-        
+
         # Create lock file to indicate rules are loaded
         touch "${LOCK_FILE}"
         return 0
@@ -156,14 +156,21 @@ verify_rules() {
     fi
 
     # Check if FORWARD chain has default policy drop
-    local forward_policy
-    forward_policy=$(nft list chain inet filter forward 2>/dev/null | grep -oP 'policy \K\w+')
-    
-    if [ "${forward_policy}" = "drop" ]; then
+    # Use nft list chain (more direct) to get policy
+    local forward_output
+    forward_output=$(nft list chain inet filter forward 2>/dev/null || true)
+
+    if echo "${forward_output}" | grep -q 'policy drop'; then
         log_info "FORWARD chain policy: drop (SECURE) - OK"
     else
-        log_error "FORWARD chain policy is NOT 'drop'! Current policy: ${forward_policy}"
+        log_error "FORWARD chain policy is NOT 'drop'!"
         log_error "FAIL SECURE: Default deny is not enforced!"
+        log_error ""
+        log_error "Raw output of 'nft list chain inet filter forward':"
+        echo "${forward_output}"
+        log_error ""
+        log_error "Debug: trying 'nft list ruleset':"
+        nft list ruleset 2>&1 | grep -A10 'chain forward' || echo "(empty)"
         return 1
     fi
 
@@ -202,10 +209,10 @@ display_rules() {
     log_info "============================================"
     log_info "ACTIVE NFTABLES RULESET"
     log_info "============================================"
-    
+
     # List the entire ruleset for verification
     nft list ruleset
-    
+
     log_info "============================================"
     log_info "END OF RULESET"
     log_info "============================================"
@@ -264,7 +271,7 @@ main() {
     echo ""
     log_info "Network interfaces inside container:"
     ip addr show 2>/dev/null | grep -E "^[0-9]|inet " || log_warning "ip command not available"
-    
+
     echo ""
     log_info "============================================"
     log_info "🔥 NFTABLES FIREWALL IS ACTIVE"
@@ -282,18 +289,18 @@ main() {
     #
     # We monitor the rules file for changes and reload if needed.
     # We also periodically verify rules are still loaded.
-    
+
     log_info "Entering monitoring loop (checking every 60s)..."
-    
+
     # Get initial file hash for change detection
     local rules_hash
     rules_hash=$(md5sum "${RULES_FILE}" 2>/dev/null | cut -d' ' -f1 || echo "unknown")
-    
+
     while true; do
         # Check if rules are still loaded
         if ! nft list table inet filter > /dev/null 2>&1; then
             log_warning "NFTables rules missing! Attempting reload..."
-            
+
             if nft -f "${RULES_FILE}" 2>/dev/null; then
                 log_info "Rules reloaded successfully."
             else
@@ -305,13 +312,13 @@ main() {
         if [ -f "${RULES_FILE}" ]; then
             local new_hash
             new_hash=$(md5sum "${RULES_FILE}" 2>/dev/null | cut -d' ' -f1 || echo "unknown")
-            
+
             if [ "${new_hash}" != "${rules_hash}" ]; then
                 log_info "Rules file changed! Reloading..."
-                
+
                 # Flush and reload
                 nft flush ruleset 2>/dev/null || true
-                
+
                 if nft -f "${RULES_FILE}" 2>/dev/null; then
                     log_info "Rules reloaded from updated file."
                     rules_hash="${new_hash}"
@@ -321,7 +328,7 @@ main() {
                 fi
             fi
         fi
-        
+
         # Sleep before next check
         sleep 60
     done
