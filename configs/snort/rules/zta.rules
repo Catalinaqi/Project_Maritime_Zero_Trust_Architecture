@@ -6,12 +6,15 @@
 # Component: Layer 1 Intrusion Detection System
 # Purpose: Detect and alert on 15 attack types
 # Data Creation: 2026-05-11
-# Last Updated: 2026-05-15 (fixed: Snort 3 syntax)
+# Last Updated: 2026-05-15 (fix: Snort 3 syntax, removed within/dwithin)
 # ============================================
 # FIXES APPLIED:
-#   - tcp.flags:X  -> flags:X;          (Snort 3 syntax)
-#   - threshold:.. -> detection_filter: (Snort 3 syntax)
-#   - $HOME_NET    -> works via ips.variables = default_variables in snort.lua
+#   - tcp.flags → flags (Snort 3)
+#   - threshold → detection_filter
+#   - offset/depth → inline options (no standalone keywords)
+#   - within:100 → distance 0 (Snort 3 compatible)
+#   - dwithin:100 → removed, use pcre or distance
+#   - Regla 11: sin byte_test, solo content + pcre para versiones débiles
 # ============================================
 
 # ============================================================
@@ -55,7 +58,7 @@ alert tcp any any -> $HOME_NET 8443 (
     msg:"[ZTA-004] SQL Injection Attempt: UNION SELECT";
     flow:to_server,established;
     content:"union", nocase;
-    content:"select", nocase, within:100;
+    content:"select", nocase, distance 0;
     sid:1000004;
     rev:1;
     priority:1;
@@ -67,7 +70,7 @@ alert tcp any any -> $HOME_NET 8443 (
     flow:to_server,established;
     pcre:"/(\%27)|(\')|(\-\-)|(\%23)|(#)/i";
     content:"or", nocase;
-    content:"1=1", nocase, dwithin:100;
+    content:"1=1", nocase, distance 0;
     sid:1000005;
     rev:1;
     priority:1;
@@ -115,7 +118,7 @@ alert tcp any any -> $HOME_NET any (
 alert tcp any any -> $HOME_NET 8443 (
     msg:"[ZTA-009] Unencrypted HTTP on TLS Port - Possible MITM or misconfiguration";
     flow:to_server,established;
-    content:"GET", offset:0, depth:3;
+    content:"GET", offset 0, depth 3;
     sid:1000009;
     rev:1;
     priority:1;
@@ -125,17 +128,18 @@ alert tcp any any -> $HOME_NET 8443 (
 alert tcp any any -> $HOME_NET 8443 (
     msg:"[ZTA-010] TLS Heartbleed Attack - Memory leakage attempt";
     flow:to_server,established;
-    content:"|18 03|", offset:0, depth:2;
+    content:"|18 03|", offset 0, depth 2;
     sid:1000010;
     rev:1;
     priority:1;
 )
 
-# Rule 11: SSL/TLS protocol downgrade
+# Rule 11: SSL/TLS protocol downgrade (SSLv3, TLSv1.0, TLSv1.1)
 alert tcp any any -> $HOME_NET 8443 (
     msg:"[ZTA-011] TLS Version Downgrade Attack - Weak protocol detected";
     flow:to_server,established;
-    content:"|16 03|", offset:0, depth:2;
+    content:"|16 03|", offset 0, depth 2;
+    pcre:"/\x16\x03[\x00-\x02]/";
     sid:1000011;
     rev:2;
     priority:2;
@@ -182,7 +186,7 @@ alert tcp any any -> $HOME_NET any (
 alert tcp any any -> $HOME_NET 8443 (
     msg:"[ZTA-015] HTTP Slowloris Attack - Resource exhaustion attempt";
     flow:to_server,established;
-    content:"POST", offset:0, depth:4;
+    content:"POST", offset 0, depth 4;
     detection_filter:track by_src, count 50, seconds 60;
     sid:1000015;
     rev:1;

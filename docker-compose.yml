@@ -316,7 +316,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    entrypoint: ["/bin/bash", "-c", "sleep infinity"]
+    #entrypoint: ["/bin/bash", "-c", "sleep infinity"]
 
   # ============================================================================
   # TESTING CLIENTS - Profile: "testing"

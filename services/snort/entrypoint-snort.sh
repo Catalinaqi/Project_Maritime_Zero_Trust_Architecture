@@ -5,22 +5,9 @@
 # Project: Maritime - Zero Trust Architecture (ZTA)
 # Author: Person 1 - Network Guardian (Snort/IDS)
 # Component: Layer 1 Intrusion Detection System
-# Purpose: Validate and start Snort 3 IDS with dynamic Splunk HEC output
+# Purpose: Validate and start Snort 3 IDS with local alert output
 # Data Creation: 2026-05-15
-# Last Updated: 2026-05-15 (added interface validation, token check)
-# =============================================================================
-# Execution Flow:
-#   step 1: Pre-flight checks (binary, config, rules, log dir, env vars)
-#   step 2: Validate Snort configuration (rules are defined in zta.rules)
-#   step 3: Show loaded rules summary (loaded from snort.lua)
-#   step 4: Build alert_json output for Splunk HEC (injected via --lua)
-#   step 5: Start Snort in foreground with exec (all interfaces)
-#   step 6: Trap shutdown signals for graceful stop
-# =============================================================================
-# NOTE: This script only handles the IDS process and output channel.
-#       Detection rules are defined in configs/snort/rules/zta.rules
-#       and loaded automatically inside snort.lua via 'include'.
-#       The injection of alert_json overrides the placeholder in snort.lua.
+# Last Updated: 2026-05-15 (fix: removed HEC injection, clean start)
 # =============================================================================
 
 set -euo pipefail
@@ -76,11 +63,11 @@ pre_flight_checks() {
     fi
     log_info "Config file found: ${SNORT_CONF}"
 
-    # 1c: Check rules file (optional warning if missing)
+    # 1c: Check rules file
     if [ -f "${SNORT_RULES}" ]; then
         log_info "Rules file found: ${SNORT_RULES}"
     else
-        log_warn "Rules file not found: ${SNORT_RULES}  (will use built-in rules if any)"
+        log_warn "Rules file not found: ${SNORT_RULES} (will use built-in rules if any)"
     fi
 
     # 1d: Check log directory writability
@@ -114,9 +101,8 @@ pre_flight_checks() {
 # =============================================================================
 # STEP 2: Validate Snort configuration
 # =============================================================================
-# STEP 2: Validate - quita --warn-all
 validate_config() {
-    log_info "Validating Snort configuration (rules from zta.rules are loaded via snort.lua)..."
+    log_info "Validating Snort configuration..."
     local VALIDATE_OUTPUT
     if VALIDATE_OUTPUT=$(snort -c "${SNORT_CONF}" -T 2>&1); then
         log_info "Config validation: PASSED"
@@ -127,9 +113,8 @@ validate_config() {
     fi
 }
 
-
 # =============================================================================
-# STEP 3: Show rules summary (custom rules from zta.rules)
+# STEP 3: Show rules summary
 # =============================================================================
 show_rules_summary() {
     log_info "Custom rules summary (zta.rules):"
@@ -146,69 +131,23 @@ show_rules_summary() {
 }
 
 # =============================================================================
-# STEP 4: Build alert_json Lua configuration for Splunk HEC
+# STEP 4: Start Snort in foreground
 # =============================================================================
-build_hec_lua_config() {
-    # Single-quoted strings in Lua, using here-doc
-    local HEC_CONFIG
-    HEC_CONFIG=$(cat <<-END
-alert_json = {
-    file = false,
-    http = {
-        server = '$SPLUNK_HEC_URL',
-        token = '$SPLUNK_HEC_TOKEN',
-        method = 'POST',
-        headers = { ['Content-Type'] = 'application/json' }
-    }
-}
-END
-)
-    # Validate that the resulting Lua is not empty
-    if [ -z "$HEC_CONFIG" ]; then
-        log_error "Failed to build alert_json Lua configuration"
-        exit 1
-    fi
-    echo "$HEC_CONFIG"
-}
-
-# =============================================================================
-# STEP 5: Start Snort in foreground (exec replaces shell)
-# =============================================================================
-# STEP 5: Start - construye múltiples -i
 start_snort() {
     log_info "Starting Snort 3 in IDS mode..."
     log_info "Monitoring interfaces: ${INTERFACE}"
-    log_info "Splunk HEC endpoint: ${SPLUNK_HEC_URL}"
 
-    HEC_LUA=$(build_hec_lua_config)
-
-    # Build multiple -i flags from colon-separated INTERFACE
-    local IFACE_FLAGS=""
-    IFS=':' read -ra IFACES <<< "${INTERFACE}"
-    for iface in "${IFACES[@]}"; do
-        if ip link show "${iface}" &>/dev/null; then
-            IFACE_FLAGS="${IFACE_FLAGS} -i ${iface}"
-        else
-            log_warn "Skipping interface '${iface}' - not found"
-        fi
-    done
-
-    if [ -z "${IFACE_FLAGS}" ]; then
-        log_warn "No valid interfaces found - running in read-file mode for testing"
-        IFACE_FLAGS="-r /dev/null"
-    fi
-
+    # Snort 3 accepts colon-separated interfaces with -i
     exec snort -c "${SNORT_CONF}" \
-               ${IFACE_FLAGS} \
+               -i "${INTERFACE}" \
                -l "${SNORT_LOG_DIR}" \
                -A alert_fast \
                --plugin-path /usr/local/lib/daq \
-               --lua "${HEC_LUA}" \
                2>&1
 }
 
 # =============================================================================
-# STEP 6: Shutdown handler (only reached if exec fails)
+# STEP 5: Shutdown handler (only reached if exec fails)
 # =============================================================================
 shutdown_handler() {
     echo ""
@@ -246,13 +185,11 @@ main() {
     validate_config
     show_rules_summary
 
-    # Start Snort (this will replace the shell process with exec)
     start_snort
 
     # If exec fails (e.g., due to invalid arguments), fall back
     log_error "Snort exec failed. Please check configuration."
     log_error "Falling back to log monitoring mode (no IDS process)..."
-    # Keep container alive for debugging
     tail -f /dev/null
 }
 
