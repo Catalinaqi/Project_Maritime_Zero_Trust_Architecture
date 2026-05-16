@@ -15,13 +15,6 @@
 *.csr
 *.der
 
-# Certificate directories
-certs/ca/
-certs/server/
-certs/clients/
-certs/**/*.key
-certs/**/*.crt
-certs/**/*.pem
 
 # Environment files with secrets
 .env

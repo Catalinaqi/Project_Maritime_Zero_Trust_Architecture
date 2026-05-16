@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # 1. IL TUO VERO ENVOY
+  pep_gateway:
+    image: envoyproxy/envoy:v1.30-latest
+    container_name: pep_gateway_test
+    ports:
+      - "8443:8443"
+      - "9901:9901"
+    volumes:
+      - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml
+      - ./certs/server:/certs:ro
+    depends_on:
+      - db_primary
+      - pdp_engine
+
+  # 2. IL MANICHINO DEL DATABASE
+  db_primary:
+    image: nginx:alpine
+    container_name: db_dummy
+
+  # 3. IL MANICHINO DI OPA
+  pdp_engine:
+    image: nginx:alpine
+    container_name: opa_dummy
