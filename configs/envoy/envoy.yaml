@@ -6,37 +6,72 @@ admin:
 
 static_resources:
   listeners:
-  - name: listener_0
+  - name: listener_https_mtls
     address:
       socket_address:
         address: 0.0.0.0
         port_value: 8443
-    
-    # Necessario per "ispezionare" il TLS e calcolare il JA3
+
     listener_filters:
     - name: envoy.filters.listener.tls_inspector
       typed_config:
         "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
 
     filter_chains:
-    - filters:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain:
+                filename: "/certs/server.crt"
+              private_key:
+                filename: "/certs/server.key"
+            validation_context:
+              trusted_ca:
+                filename: "/certs/ca.crt"
+            tls_params:
+              tls_minimum_protocol_version: TLSv1_2
+              tls_maximum_protocol_version: TLSv1_3
+
+      filters:
       - name: envoy.filters.network.http_connection_manager
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          stat_prefix: ingress_http
+          stat_prefix: ingress_https
+
+          access_log:
+          - name: envoy.access_loggers.file
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+              path: /var/log/envoy/access.log
+              log_format:
+                json_format:
+                  timestamp: "%START_TIME%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(:PATH)%"
+                  protocol: "%PROTOCOL%"
+                  response_code: "%RESPONSE_CODE%"
+                  response_flags: "%RESPONSE_FLAGS%"
+                  downstream_remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
+                  upstream_host: "%UPSTREAM_HOST%"
+                  user_agent: "%REQ(USER-AGENT)%"
+                  x_forwarded_for: "%REQ(X-FORWARDED-FOR)%"
+
           route_config:
             name: local_route
             virtual_hosts:
-            - name: local_service
+            - name: backend_service
               domains: ["*"]
               routes:
               - match:
                   prefix: "/"
                 route:
-                  cluster: cluster_database_mongodb
-          
+                  cluster: cluster_backend_api
+
           http_filters:
-          # --- FASE 1: AUTORIZZAZIONE ESTERNA (Verso OPA) ---
           - name: envoy.filters.http.ext_authz
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
@@ -45,49 +80,28 @@ static_resources:
                   cluster_name: cluster_opa
                 timeout: 0.5s
               transport_api_version: V3
-              # Invia a OPA i dettagli del certificato e gli headers (incluso JA3)
               include_peer_certificate: true
               status_on_error:
                 code: ServiceUnavailable
-          
+
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
-      # --- FASE 2: SICUREZZA mTLS (Certificati) ---
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-          require_client_certificate: true
-          common_tls_context:
-            tls_certificates:
-            - certificate_chain:
-                filename: "/certs/server.crt"  # Aggiornato in base al docker-compose
-              private_key:
-                filename: "/certs/server.key"  # Aggiornato in base al docker-compose
-            validation_context:
-              trusted_ca:
-                filename: "/certs/ca.crt"      # Aggiornato in base al docker-compose
-            tls_params:
-              tls_maximum_protocol_version: TLSv1_3
-
   clusters:
-  # --- DESTINAZIONE 1: IL DATABASE (MongoDB) ---
-  - name: cluster_database_mongodb
+  - name: cluster_backend_api
     type: STRICT_DNS
     lb_policy: ROUND_ROBIN
     load_assignment:
-      cluster_name: cluster_database_mongodb
+      cluster_name: cluster_backend_api
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: db_primary  # Nome ESATTO del container DB
-                port_value: 27017
+                address: api_backend
+                port_value: 3000
 
-  # --- DESTINAZIONE 2: IL CERVELLO OPA ---
   - name: cluster_opa
     type: STRICT_DNS
     lb_policy: ROUND_ROBIN
@@ -103,5 +117,5 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: pdp_engine  # Nome ESATTO del container OPA
-                port_value: 8181
+                address: pdp_engine
+                port_value: 9191
