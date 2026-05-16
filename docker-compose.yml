@@ -346,16 +346,21 @@ services:
   # ============================================================================
   # TESTING CLIENTS
   # ============================================================================
+  # Client coerenti con gli utenti MongoDB:
+  # - operatore_ancona
+  # - capitano_claudia
+  # - soc_admin
+  # - intruso per test negativo
 
-  client_corporate:
+  client_operatore_ancona:
     build:
       context: ./services/clients
       dockerfile: Dockerfile
       args:
-        CLIENT_TYPE: corporate
-        CLIENT_ROLE: operations
-    container_name: client_corporate
-    hostname: client-corporate
+        CLIENT_TYPE: operatore_ancona
+        CLIENT_ROLE: ruolo_banchina
+    container_name: client_operatore_ancona
+    hostname: client-operatore-ancona
     restart: "no"
 
     networks:
@@ -364,11 +369,13 @@ services:
 
     volumes:
       - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/corporate:/certs:ro
+      - ./certs/clients/operatore_ancona:/certs:ro
 
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
+      - CLIENT_NAME=operatore_ancona
+      - CLIENT_ROLE=ruolo_banchina
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
       - CA_CERT=/certs/ca.crt
@@ -386,15 +393,15 @@ services:
         max-size: "5m"
         max-file: "2"
 
-  client_vpn_remote:
+  client_capitano_claudia:
     build:
       context: ./services/clients
       dockerfile: Dockerfile
       args:
-        CLIENT_TYPE: vpn
-        CLIENT_ROLE: remote_agent
-    container_name: client_vpn_remote
-    hostname: client-vpn-remote
+        CLIENT_TYPE: capitano_claudia
+        CLIENT_ROLE: ruolo_equipaggio
+    container_name: client_capitano_claudia
+    hostname: client-capitano-claudia
     restart: "no"
 
     networks:
@@ -403,11 +410,13 @@ services:
 
     volumes:
       - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/vpn_remote:/certs:ro
+      - ./certs/clients/capitano_claudia:/certs:ro
 
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
+      - CLIENT_NAME=capitano_claudia
+      - CLIENT_ROLE=ruolo_equipaggio
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
       - CA_CERT=/certs/ca.crt
@@ -419,15 +428,21 @@ services:
     profiles:
       - testing
 
-  client_satellite:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_soc_admin:
     build:
       context: ./services/clients
       dockerfile: Dockerfile
       args:
-        CLIENT_TYPE: satellite
-        CLIENT_ROLE: branch_ops
-    container_name: client_satellite
-    hostname: client-satellite
+        CLIENT_TYPE: soc_admin
+        CLIENT_ROLE: ruolo_gestione_flotta
+    container_name: client_soc_admin
+    hostname: client-soc-admin
     restart: "no"
 
     networks:
@@ -436,11 +451,13 @@ services:
 
     volumes:
       - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/satellite:/certs:ro
+      - ./certs/clients/soc_admin:/certs:ro
 
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
+      - CLIENT_NAME=soc_admin
+      - CLIENT_ROLE=ruolo_gestione_flotta
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
       - CA_CERT=/certs/ca.crt
@@ -452,15 +469,21 @@ services:
     profiles:
       - testing
 
-  client_foreign_agent:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_intruso:
     build:
       context: ./services/clients
       dockerfile: Dockerfile
       args:
-        CLIENT_TYPE: foreign
-        CLIENT_ROLE: partner
-    container_name: client_foreign_agent
-    hostname: client-foreign
+        CLIENT_TYPE: intruso
+        CLIENT_ROLE: ruolo_non_autorizzato
+    container_name: client_intruso
+    hostname: client-intruso
     restart: "no"
 
     networks:
@@ -469,11 +492,13 @@ services:
 
     volumes:
       - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/foreign_agent:/certs:ro
+      - ./certs/clients/intruso:/certs:ro
 
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
+      - CLIENT_NAME=intruso
+      - CLIENT_ROLE=ruolo_non_autorizzato
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
       - CA_CERT=/certs/ca.crt
@@ -485,38 +510,11 @@ services:
     profiles:
       - testing
 
-  client_public_wifi:
-    build:
-      context: ./services/clients
-      dockerfile: Dockerfile
-      args:
-        CLIENT_TYPE: public
-        CLIENT_ROLE: guest
-    container_name: client_public_wifi
-    hostname: client-public
-    restart: "no"
-
-    networks:
-      clients_net:
-        ipv4_address: 172.20.5.24
-
-    volumes:
-      - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/public_wifi:/certs:ro
-
-    environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - CA_CERT=/certs/ca.crt
-
-    depends_on:
-      pep_gateway:
-        condition: service_healthy
-
-    profiles:
-      - testing
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 # ==============================================================================
 # NETWORKS
