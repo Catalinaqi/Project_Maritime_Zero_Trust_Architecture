@@ -23,6 +23,7 @@ services:
 
     ports:
       - "8000:8000"
+      - "8088:8088" #porta dedicata al ricevitore degli eventi HTTP
 
     volumes:
       - splunk_data:/opt/splunk/var
@@ -94,58 +95,13 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================================================
-  # TEMP BACKEND API
-  # ============================================================================
-  # Backend temporaneo per testare Envoy.
-  # La Persona 4 potrà sostituirlo con una vera API che parla con MongoDB.
-  # Envoy inoltra verso questo servizio su api_backend:3000.
-
-  api_backend:
-    image: node:20-alpine
-    container_name: api_backend
-    hostname: api_backend
-    restart: unless-stopped
-    working_dir: /app
-
-    command: >
-      sh -c "node -e \"
-      const http = require('http');
-      const server = http.createServer((req, res) => {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({
-          service: 'api_backend',
-          status: 'ok',
-          method: req.method,
-          url: req.url,
-          message: 'Request forwarded correctly by Envoy'
-        }));
-      });
-      server.listen(3000, '0.0.0.0');
-      \""
-
-    networks:
-      backend_net:
-        ipv4_address: 172.20.3.20
-
-    depends_on:
-      db_primary:
-        condition: service_healthy
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ============================================================================
   # LAYER 3: DECISION - OPA Policy Engine
   # ============================================================================
-
   pdp_engine:
-    build:
-      context: ./services/opa
-      dockerfile: Dockerfile
+    # 1. Usa l'immagine ufficiale al posto della build locale
+    image: openpolicyagent/opa:latest-envoy
     container_name: pdp_engine
     hostname: opa-policy
     restart: unless-stopped
@@ -180,16 +136,17 @@ services:
       - "--log-format=json"
       - "/policies"
 
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health?bundle=true"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    # 2. Modificato in wget per compatibilità nativa
+    #healthcheck:
+    #  test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+    #  interval: 10s
+    #  timeout: 5s
+    #  retries: 5
+    #  start_period: 15s
 
     depends_on:
       siem_central:
-        condition: service_healthy
+        condition: service_started
 
     logging:
       driver: "json-file"
@@ -222,32 +179,33 @@ services:
       - "127.0.0.1:9901:9901"
 
     volumes:
-      - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
-      - ./certs/server:/certs:ro
-      - envoy_logs:/var/log/envoy
+          - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+          - ./configs/envoy/mongo_inspector.lua:/etc/envoy/mongo_inspector.lua:ro
+          - ./certs/server:/certs:ro
+          - envoy_logs:/var/log/envoy
+          - ./certs/ca/ca.crt:/ca/ca.crt:ro
 
     environment:
       - OPA_HOST=pdp_engine
       - OPA_PORT=9191
-      - API_BACKEND_HOST=api_backend
-      - API_BACKEND_PORT=3000
+      #- API_BACKEND_HOST=api_backend
+      #- API_BACKEND_PORT=3000
       - SPLUNK_HEC_URL=http://siem_central:8088/services/collector
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
 
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
 
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9901/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+    #healthcheck:
+    #  test: ["CMD", "curl", "-f", "http://localhost:9901/ready"]
+    #  interval: 10s
+    #  timeout: 5s
+    #  retries: 5
+    #  start_period: 20s
 
     depends_on:
       pdp_engine:
-        condition: service_healthy
-      api_backend:
         condition: service_started
+
 
     logging:
       driver: "json-file"
@@ -350,171 +308,80 @@ services:
   # - operatore_ancona
   # - capitano_claudia
   # - soc_admin
-  # - intruso per test negativo
-
+    # - intruso per test negativo
   client_operatore_ancona:
-    build:
-      context: ./services/clients
-      dockerfile: Dockerfile
-      args:
-        CLIENT_TYPE: operatore_ancona
-        CLIENT_ROLE: ruolo_banchina
-    container_name: client_operatore_ancona
-    hostname: client-operatore-ancona
-    restart: "no"
-
-    networks:
-      clients_net:
-        ipv4_address: 172.20.5.20
-
-    volumes:
-      - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/operatore_ancona:/certs:ro
-
-    environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - CLIENT_NAME=operatore_ancona
-      - CLIENT_ROLE=ruolo_banchina
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - CA_CERT=/certs/ca.crt
-
-    depends_on:
-      pep_gateway:
-        condition: service_healthy
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+      build:
+        context: ./services/clients
+        dockerfile: Dockerfile
+        args:
+          CLIENT_TYPE: operatore_ancona
+          CLIENT_ROLE: ruolo_banchina
+      container_name: client_operatore_ancona
+      hostname: client-operatore-ancona
+      restart: "no"
+      volumes:
+        - ./certs/clients/operatore_ancona:/certs:ro
+        - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      environment:
+        - MONGO_HOST=pep_gateway
+        - MONGO_PORT=8443
+        - DB_NAME=maritime_zta
+      networks:
+        - clients_net
 
   client_capitano_claudia:
-    build:
-      context: ./services/clients
-      dockerfile: Dockerfile
-      args:
-        CLIENT_TYPE: capitano_claudia
-        CLIENT_ROLE: ruolo_equipaggio
-    container_name: client_capitano_claudia
-    hostname: client-capitano-claudia
-    restart: "no"
-
-    networks:
-      clients_net:
-        ipv4_address: 172.20.5.21
-
-    volumes:
-      - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/capitano_claudia:/certs:ro
-
-    environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - CLIENT_NAME=capitano_claudia
-      - CLIENT_ROLE=ruolo_equipaggio
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - CA_CERT=/certs/ca.crt
-
-    depends_on:
-      pep_gateway:
-        condition: service_healthy
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+      build:
+        context: ./services/clients
+        dockerfile: Dockerfile
+      container_name: client_capitano_claudia
+      image: maritime-zta-client_capitano_claudia:latest
+      volumes:
+        - ./certs/clients/nave:/certs:ro
+        - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      environment:
+        - MONGO_HOST=pep_gateway
+        - MONGO_PORT=8443
+        - DB_NAME=maritime_zta
+      networks:
+        - clients_net
 
   client_soc_admin:
-    build:
-      context: ./services/clients
-      dockerfile: Dockerfile
-      args:
-        CLIENT_TYPE: soc_admin
-        CLIENT_ROLE: ruolo_gestione_flotta
-    container_name: client_soc_admin
-    hostname: client-soc-admin
-    restart: "no"
-
-    networks:
-      clients_net:
-        ipv4_address: 172.20.5.22
-
-    volumes:
-      - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/soc_admin:/certs:ro
-
-    environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - CLIENT_NAME=soc_admin
-      - CLIENT_ROLE=ruolo_gestione_flotta
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - CA_CERT=/certs/ca.crt
-
-    depends_on:
-      pep_gateway:
-        condition: service_healthy
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+      build:
+        context: ./services/clients
+        dockerfile: Dockerfile
+        args:
+          CLIENT_TYPE: soc_admin
+          CLIENT_ROLE: ruolo_gestione_flotta
+      container_name: client_soc_admin
+      hostname: client-soc-admin
+      restart: "no"
+      volumes:
+        - ./certs/clients/soc_admin:/certs:ro
+        - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      environment:
+        - MONGO_HOST=pep_gateway
+        - MONGO_PORT=8443
+        - DB_NAME=maritime_zta
+      networks:
+        - clients_net
 
   client_intruso:
-    build:
-      context: ./services/clients
-      dockerfile: Dockerfile
-      args:
-        CLIENT_TYPE: intruso
-        CLIENT_ROLE: ruolo_non_autorizzato
-    container_name: client_intruso
-    hostname: client-intruso
-    restart: "no"
+      build:
+        context: ./services/clients
+        dockerfile: Dockerfile
+      container_name: client_intruso
+      image: maritime-zta-client_intruso:latest
+      volumes:
+        - ./certs/clients/intruso:/certs:ro
+        - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      environment:
+        - MONGO_HOST=pep_gateway
+        - MONGO_PORT=8443
+        - DB_NAME=maritime_zta
+      networks:
+        - clients_net
 
-    networks:
-      clients_net:
-        ipv4_address: 172.20.5.23
 
-    volumes:
-      - ./services/clients/scripts:/scripts:ro
-      - ./certs/clients/intruso:/certs:ro
-
-    environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - CLIENT_NAME=intruso
-      - CLIENT_ROLE=ruolo_non_autorizzato
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - CA_CERT=/certs/ca.crt
-
-    depends_on:
-      pep_gateway:
-        condition: service_healthy
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
 
 # ==============================================================================
 # NETWORKS
