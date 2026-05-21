@@ -6,11 +6,12 @@ admin:
 
 static_resources:
   listeners:
-  - name: listener_mongodb_zt
+  - name: listener_https_zt
     address:
       socket_address:
         address: 0.0.0.0
         port_value: 8443
+
     filter_chains:
     - transport_socket:
         name: envoy.transport_sockets.tls
@@ -26,11 +27,13 @@ static_resources:
             validation_context:
               trusted_ca:
                 filename: "/ca/ca.crt"
+
       filters:
       - name: envoy.filters.network.http_connection_manager
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: ingress_http
+
           route_config:
             name: local_route
             virtual_hosts:
@@ -40,9 +43,10 @@ static_resources:
               - match:
                   prefix: "/"
                 route:
-                  cluster: cluster_database_mongodb
+                  cluster: cluster_backend_api
+
           http_filters:
-          # 1. Filtro Lua per l'ispezione profonda L7
+          # 1. Filtro Lua opzionale per ispezione/logica L7 HTTP
           - name: envoy.filters.http.lua
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
@@ -63,24 +67,24 @@ static_resources:
               metadata_context_namespaces:
               - "envoy.filters.http.lua"
 
-          # 3. Router finale verso il cluster
+          # 3. Router finale verso API backend
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
-  - name: cluster_database_mongodb
+  - name: cluster_backend_api
     type: STRICT_DNS
     lb_policy: ROUND_ROBIN
     load_assignment:
-      cluster_name: cluster_database_mongodb
+      cluster_name: cluster_backend_api
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: db_primary
-                port_value: 27017
+                address: api_backend
+                port_value: 3000
 
   - name: cluster_opa
     type: STRICT_DNS
@@ -90,6 +94,7 @@ static_resources:
         "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
         explicit_http_config:
           http2_protocol_options: {}
+
     load_assignment:
       cluster_name: cluster_opa
       endpoints:
