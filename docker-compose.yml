@@ -157,8 +157,8 @@ services:
 
     volumes:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
-      - ./configs/opa/policies:/policies:ro
-      - ./configs/opa/data:/data:ro
+      - ./configs/opa/policies/test-policy.rego:/policies/test-policy.rego:ro
+      - ./configs/opa/data/roles.json:/policies/roles.json:ro
 
     environment:
       - SPLUNK_HEC_URL=http://siem_central:8088/services/collector
@@ -311,6 +311,7 @@ services:
       - snort_logs:/var/log/snort
 
     environment:
+     # - INTERFACE=eth0+eth1+eth2+eth3 provare così
       - INTERFACE=eth0:eth1:eth2:eth3
       - HOME_NET=172.20.0.0/16
       - SPLUNK_HEC_URL=http://172.20.2.8:8088/services/collector

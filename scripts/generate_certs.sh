@@ -1,11 +1,11 @@
 #!/bin/bash
-#CN=COMMON NAME
-#OU=ORGANIZATIONAL UNIT
-#3 profili legali e dobbiamo aggiungere almeno 1 profilo "illegale" (per testare che il firewall/OPA blocchi gli intrusi).
-echo "Inizio generazione certificati mTLS allineati a MongoDB..."
+echo "Inizio generazione certificati mTLS..."
 
 mkdir -p certs/ca certs/server
-mkdir -p certs/clients/banchina certs/clients/nave certs/clients/admin certs/clients/intruso
+mkdir -p certs/clients/operatore_ancona \
+         certs/clients/capitano_claudia \
+         certs/clients/soc_admin \
+         certs/clients/intruso
 
 # 1. CA Root
 openssl req -x509 -sha256 -nodes -days 3650 -newkey rsa:4096 \
@@ -27,29 +27,33 @@ openssl x509 -req -days 365 -sha256 -in certs/server/server.csr \
   -out certs/server/server.crt -extfile certs/server/server.ext
 rm certs/server/server.csr certs/server/server.ext
 
-# 3. Funzione Generazione Client
+# 3. Funzione generazione client
 generate_client() {
-    local FOLDER=$1
-    local UTENTE_DB=$2
-    local DISPOSITIVO_DB=$3
+    local FOLDER=$1   # cartella → deve combaciare col docker-compose
+    local CN=$2       # deve combaciare con la policy OPA
+    local OU=$3       # device ID dal DB dispositivi
 
-    echo "Generazione: $UTENTE_DB su $DISPOSITIVO_DB..."
+    echo "Generazione: CN=$CN (cartella: $FOLDER)..."
     openssl req -newkey rsa:2048 -nodes \
       -keyout certs/clients/$FOLDER/client.key \
-      -out certs/clients/$FOLDER/client.csr \
-      -subj "/O=Maritime_Zero_Trust/OU=$DISPOSITIVO_DB/CN=$UTENTE_DB"
+      -out    certs/clients/$FOLDER/client.csr \
+      -subj "/O=Maritime_Zero_Trust/OU=$OU/CN=$CN"
 
-    openssl x509 -req -days 365 -sha256 -in certs/clients/$FOLDER/client.csr \
+    openssl x509 -req -days 365 -sha256 \
+      -in certs/clients/$FOLDER/client.csr \
       -CA certs/ca/ca.crt -CAkey certs/ca/ca.key -CAcreateserial \
       -out certs/clients/$FOLDER/client.crt
     rm certs/clients/$FOLDER/client.csr
+
+    # Copia la CA in ogni cartella client (utile per debug)
+    cp certs/ca/ca.crt certs/clients/$FOLDER/ca.crt
 }
 
-# 4. Creazione delle identità esatte dal tuo MongoDB
-generate_client "banchina" "operatore_ancona" "D-001"
-generate_client "nave" "capitano_claudia" "D-002"
-generate_client "admin" "soc_admin" "D-SOC"
-generate_client "intruso" "hacker_esterno" "Sconosciuto"
+# 4. Generazione — FOLDER=docker-compose, CN=OPA policy, OU=DB dispositivi
+generate_client "operatore_ancona" "Marco Rossi"    "D-001"
+generate_client "capitano_claudia" "Elena Bianchi"  "D-002"
+generate_client "soc_admin"        "Admin SOC"      "D-SOC"
+generate_client "intruso"          "hacker_esterno" "Sconosciuto"
 
-rm certs/ca/ca.srl
-echo "Certificati generati."
+rm -f certs/ca/ca.srl
+echo "Certificati generati correttamente."
