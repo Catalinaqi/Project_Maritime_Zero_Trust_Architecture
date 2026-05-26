@@ -1,0 +1,6 @@
+splunk:
+  hec:
+    enable: true
+    port: 8088
+    ssl: false
+    token: CHANGE_ME_RANDOM_UUID_HERE

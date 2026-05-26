@@ -162,7 +162,7 @@ services:
       - ./configs/opa/data/roles.json:/policies/roles.json:ro
 
     environment:
-      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector
+      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - MONGODB_HOST=db_primary
       - MONGODB_PORT=27017
@@ -193,6 +193,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
 
   # ============================================================================
   # LAYER 2: ENFORCEMENT - Envoy Proxy PEP
@@ -230,7 +231,7 @@ services:
       - OPA_PORT=9191
       - API_BACKEND_HOST=api_backend
       - API_BACKEND_PORT=3000
-      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector
+      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
 
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
@@ -323,7 +324,7 @@ services:
      # - INTERFACE=eth0+eth1+eth2+eth3 provare così
       - INTERFACE=eth0:eth1:eth2:eth3
       - HOME_NET=172.20.0.0/16
-      - SPLUNK_HEC_URL=http://172.20.2.8:8088/services/collector
+      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
 
     depends_on:

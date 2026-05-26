@@ -3,5 +3,17 @@ plugins:
     addr: :9191
     path: envoy/authz/allow
 
+services:
+  splunk_hec:
+    url: https://siem_central:8088
+    allow_insecure_tls: true
+    headers:
+      Authorization: "Splunk ${SPLUNK_HEC_TOKEN}"
+
 decision_logs:
   console: true
+  service: splunk_hec
+  resource: /services/collector/raw
+  reporting:
+    min_delay_seconds: 5
+    max_delay_seconds: 10
