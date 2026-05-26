@@ -50,9 +50,22 @@ static_resources:
           - name: envoy.filters.http.lua
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-              source_codes:
-                mongo_inspector.lua:
-                  filename: "/etc/envoy/mongo_inspector.lua"
+              default_source_code:
+                inline_string: |
+                  function envoy_on_request(request_handle)
+                      local path = request_handle:headers():get(":path")
+                      local method = request_handle:headers():get(":method")
+                      local collection = string.match(path, "^/([^/]+)")
+                      local command_map = {GET="find", POST="insert", PUT="update", DELETE="delete"}
+                      local command = command_map[method] or "unknown"
+                      request_handle:streamInfo():dynamicMetadata():set(
+                          "envoy.filters.http.lua",
+                          "context_extensions",
+                          {command=command, collection=collection or "unknown", path=path}
+                      )
+                  end
+                  function envoy_on_response(response_handle) end
+
 
           # 2. Filtro di autorizzazione esterna verso OPA
           - name: envoy.filters.http.ext_authz

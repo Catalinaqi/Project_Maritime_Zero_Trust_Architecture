@@ -1,20 +1,23 @@
 {
-  "attributes": {
-    "source": {
-      "address": {
-        "socket_address": {
-          "address": "172.20.5.21",
-          "port_value": 54321
-        }
+  "input": {
+    "attributes": {
+      "source": {
+        "address": {
+          "socket_address": {
+            "address": "172.20.5.21",
+            "port_value": 54321
+          }
+        },
+        "principal": "CN=Marco Rossi"
       },
-      "principal": "CN=Elena Bianchi,OU=D-002,O=Maritime_Zero_Trust"
-    },
-    "metadata_context": {
-      "filter_metadata": {
-        "envoy.filters.http.lua": {
-          "context_extensions": {
-            "collection": "risorse",
-            "command": "find"
+      "metadata_context": {
+        "filter_metadata": {
+          "envoy.filters.http.lua": {
+            "context_extensions": {
+              "collection": "risorse",
+              "command": "find",
+              "risk_score": 30
+            }
           }
         }
       }
