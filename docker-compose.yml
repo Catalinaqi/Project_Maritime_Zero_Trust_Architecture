@@ -144,6 +144,7 @@ services:
     container_name: pdp_engine
     hostname: opa-policy
     restart: unless-stopped
+    working_dir: /usr/share/opa-app
 
     networks:
       zerotrust_net:
@@ -152,8 +153,8 @@ services:
         ipv4_address: 172.20.4.6
 
     ports:
-      - "8181:8181"
-      - "9191:9191"
+      - "8181:8181"     # Porta REST (per management/ispezione)
+      - "9191:9191"     # Porta gRPC (per Envoy)
 
     volumes:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
@@ -171,9 +172,17 @@ services:
       - "--server"
       - "--addr=0.0.0.0:8181"
       - "--config-file=/config/opa-config.yaml"
-      - "--log-level=info"
+      - "--log-level=debug"
       - "--log-format=json"
       - "/policies"
+
+    # 2. Modificato in wget per compatibilità nativa
+    #healthcheck:
+    #  test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+    #  interval: 10s
+    #  timeout: 5s
+    #  retries: 5
+    #  start_period: 15s
 
     depends_on:
       siem_central:
