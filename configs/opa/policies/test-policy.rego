@@ -19,16 +19,44 @@ user_id := "soc_admin"        if contains(user_principal, "CN=Admin SOC")
 
 user_profile := data.users[user_id]
 
+#Check del dispositivio leggendo il l'OU dal certificato
+#device_id := dev if {
+#    # L'OU del certificato contiene il device ID
+#    principal := input.attributes.source.principal
+#    dev := regex.find_n("OU=([^,]+)", principal, 1)[0]
+#    dev != ""
+#}
+
+#evice_allowed(profile) if {
+#   profile.allowed_devices[_] == device_id
+#}
+
+# Device ID ora viene dall'header HTTP estratto da Lua
+# invece che dall'OU del certificato utente
+device_id := request_metadata.device_cn
+
+device_allowed(profile) if {
+    profile.allowed_devices[_] == device_id
+}
+
+# Blocca se il certificato device non è presente
+device_present if {
+    request_metadata.device_present == true
+}
+
+
 allow if {
+    device_present
     resource_allowed(user_profile.allowed_resources, req_collection)
     command_allowed(user_profile.allowed_commands, req_command)
+    device_allowed(user_profile)
     time_allowed(user_profile)
     risk_allowed(user_profile)
+    network_allowed(user_profile)
 }
 
 resource_allowed(allowed_list, collection) if { allowed_list[_] == "*" }
 resource_allowed(allowed_list, collection) if { allowed_list[_] == collection }
-
 command_allowed(allowed_list, command) if { allowed_list[_] == command }
 
 time_allowed(profile) if {
@@ -47,4 +75,10 @@ risk_allowed(profile) if {
 
 risk_allowed(profile) if {
     not request_metadata.risk_score
+}
+
+network_allowed(profile) if {
+    src_ip := input.attributes.source.address.socketAddress.address
+    subnet := profile.allowed_subnets[_]
+    net.cidr_contains(subnet, src_ip)
 }

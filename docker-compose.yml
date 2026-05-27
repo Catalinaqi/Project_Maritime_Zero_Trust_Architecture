@@ -210,10 +210,23 @@ services:
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.7
+
       backend_net:
         ipv4_address: 172.20.3.7
-      clients_net:
-        ipv4_address: 172.20.5.7
+      #clients_net:
+      #  ipv4_address: 172.20.5.7
+
+      corporate_net:       # soc_admin
+        ipv4_address: 172.20.10.7
+
+      vpn_net:              # operatore_ancona
+        ipv4_address: 172.20.11.7
+
+      satellite_net:       # capitano
+        ipv4_address: 172.20.12.7
+
+      public_net:          # intruso
+        ipv4_address: 172.20.13.7
 
     ports:
       - "8443:8443"
@@ -261,14 +274,26 @@ services:
     restart: unless-stopped
 
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.10
+      #clients_net:
+      #  ipv4_address: 172.20.5.10
       zerotrust_net:
         ipv4_address: 172.20.2.10
       backend_net:
         ipv4_address: 172.20.3.10
       monitoring_net:
         ipv4_address: 172.20.4.10
+
+      corporate_net:       # soc_admin
+        ipv4_address: 172.20.10.10
+
+      vpn_net:              # operatore_ancona
+        ipv4_address: 172.20.11.10
+
+      satellite_net:       # capitano
+        ipv4_address: 172.20.12.10
+
+      public_net:          # intruso
+        ipv4_address: 172.20.13.10
 
     cap_add:
       - NET_ADMIN
@@ -302,14 +327,26 @@ services:
     restart: unless-stopped
 
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.11
+      #clients_net:
+      #  ipv4_address: 172.20.5.11
       zerotrust_net:
         ipv4_address: 172.20.2.11
       backend_net:
         ipv4_address: 172.20.3.11
       monitoring_net:
         ipv4_address: 172.20.4.11
+
+      corporate_net:       # soc_admin
+        ipv4_address: 172.20.10.11
+
+      vpn_net:              # operatore_ancona
+        ipv4_address: 172.20.11.11
+
+      satellite_net:       # capitano
+        ipv4_address: 172.20.12.11
+
+      public_net:          # intruso
+        ipv4_address: 172.20.13.11
 
     cap_add:
       - NET_ADMIN
@@ -321,7 +358,7 @@ services:
       - snort_logs:/var/log/snort
 
     environment:
-     # - INTERFACE=eth0+eth1+eth2+eth3 provare così
+     # - INTERFACE=eth0+eth1+eth2+eth3 provare così per ids_firewall
       - INTERFACE=eth0:eth1:eth2:eth3
       - HOME_NET=172.20.0.0/16
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
@@ -346,6 +383,8 @@ services:
   # - soc_admin
   # - intruso per test negativo
 
+  #  Ogni client è connesso alla propria rete
+
   client_operatore_ancona:
     build:
       context: ./services/clients
@@ -358,11 +397,12 @@ services:
     restart: "no"
 
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.20
+      vpn_net:
+        ipv4_address: 172.20.11.20
 
     volumes:
-      - ./certs/clients/operatore_ancona:/certs:ro
+      - ./certs/clients/operatore_ancona:/certs:ro         # certificato utente
+      - ./certs/devices/D-001:/certs/device:ro             # certificato device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
 
@@ -374,6 +414,7 @@ services:
       - CLIENT_ROLE=ruolo_banchina
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
+      - DEVICE_CERT=/certs/device/device.crt
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -401,11 +442,12 @@ services:
     restart: "no"
 
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.21
+      satellite_net:
+        ipv4_address: 172.20.12.21
 
     volumes:
-      - ./certs/clients/capitano_claudia:/certs:ro
+      - ./certs/clients/capitano_claudia:/certs:ro         # certificato utente
+      - ./certs/devices/D-002:/certs/device:ro             # certificato device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
 
@@ -417,6 +459,7 @@ services:
       - CLIENT_ROLE=ruolo_equipaggio
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
+      - DEVICE_CERT=/certs/device/device.crt
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -444,11 +487,12 @@ services:
     restart: "no"
 
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.22
+      corporate_net:
+        ipv4_address: 172.20.10.20
 
     volumes:
-      - ./certs/clients/soc_admin:/certs:ro
+      - ./certs/clients/soc_admin:/certs:ro                # certificato utente
+      - ./certs/devices/D-SOC:/certs/device:ro             # certificato device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
 
@@ -460,6 +504,7 @@ services:
       - CLIENT_ROLE=ruolo_gestione_flotta
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
+      - DEVICE_CERT=/certs/device/device.crt
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -487,8 +532,8 @@ services:
     restart: "no"
 
     networks:
-      clients_net:
-        ipv4_address: 172.20.5.23
+      public_net:
+        ipv4_address: 172.20.13.99
 
     volumes:
       - ./certs/clients/intruso:/certs:ro
@@ -523,12 +568,46 @@ services:
 # ==============================================================================
 
 networks:
-  clients_net:
+  # Rete aziendale — alta fiducia
+  corporate_net:
     driver: bridge
-    name: maritime-zta_clients
+    name: maritime-zta_corporate
     ipam:
       config:
-        - subnet: ${NETWORK_CLIENTS_SUBNET:-172.20.5.0/24}
+        - subnet: 172.20.10.0/24
+
+  # Rete VPN — media fiducia
+  vpn_net:
+    driver: bridge
+    name: maritime-zta_vpn
+    ipam:
+      config:
+        - subnet: 172.20.11.0/24
+
+  # Rete satellitare — media fiducia
+  satellite_net:
+    driver: bridge
+    name: maritime-zta_satellite
+    ipam:
+      config:
+        - subnet: 172.20.12.0/24
+
+  # Rete pubblica — bassa fiducia
+  public_net:
+    driver: bridge
+    name: maritime-zta_public
+    ipam:
+      config:
+        - subnet: 172.20.13.0/24
+
+   # reti
+
+  #clients_net:
+  #  driver: bridge
+  #  name: maritime-zta_clients
+  #  ipam:
+  #    config:
+  #      - subnet: ${NETWORK_CLIENTS_SUBNET:-172.20.5.0/24}
 
   zerotrust_net:
     driver: bridge
@@ -551,6 +630,8 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
+
+
 
 # ==============================================================================
 # VOLUMES
