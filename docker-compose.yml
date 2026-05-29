@@ -327,30 +327,27 @@ services:
     restart: unless-stopped
 
     networks:
-      #clients_net:
-      #  ipv4_address: 172.20.5.11
       zerotrust_net:
         ipv4_address: 172.20.2.11
       backend_net:
         ipv4_address: 172.20.3.11
       monitoring_net:
         ipv4_address: 172.20.4.11
-
-      corporate_net:       # soc_admin
+      corporate_net:
         ipv4_address: 172.20.10.11
-
-      vpn_net:              # operatore_ancona
+      vpn_net:
         ipv4_address: 172.20.11.11
-
-      satellite_net:       # capitano
+      satellite_net:
         ipv4_address: 172.20.12.11
-
-      public_net:          # intruso
+      public_net:
         ipv4_address: 172.20.13.11
 
+    privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    security_opt:
+      - apparmor:unconfined
 
     volumes:
       - ./configs/snort/snort.lua:/etc/snort/snort.lua:ro
@@ -358,8 +355,8 @@ services:
       - snort_logs:/var/log/snort
 
     environment:
-     # - INTERFACE=eth0+eth1+eth2+eth3 provare così per ids_firewall
-      - INTERFACE=eth0:eth1:eth2:eth3
+      - IDS_MODE=portable
+      - INTERFACE=eth0
       - HOME_NET=172.20.0.0/16
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
@@ -373,7 +370,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
   # ============================================================================
   # TESTING CLIENTS
   # ============================================================================

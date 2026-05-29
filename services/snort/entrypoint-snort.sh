@@ -3,11 +3,11 @@
 # Snort 3 IDS Entrypoint Script - Maritime Zero Trust
 # =============================================================================
 # Project: Maritime - Zero Trust Architecture (ZTA)
-# Author: Person 1 - Network Guardian (Snort/IDS)
 # Component: Layer 1 Intrusion Detection System
-# Purpose: Validate and start Snort 3 IDS with local alert output
-# Data Creation: 2026-05-15
-# Last Updated: 2026-05-15 (fix: removed HEC injection, clean start)
+# Purpose:
+#   - Validate Snort 3 configuration and custom rules.
+#   - Start Snort in live IDS mode when supported.
+#   - Provide a portable mode for Docker Desktop Windows/Mac/Linux.
 # =============================================================================
 
 set -euo pipefail
@@ -19,8 +19,10 @@ SNORT_CONF="/etc/snort/snort.lua"
 SNORT_RULES="/etc/snort/rules/zta.rules"
 SNORT_LOG_DIR="/var/log/snort"
 SNORT_ALERT_FILE="${SNORT_LOG_DIR}/alert"
+SNORT_PORTABLE_LOG="${SNORT_LOG_DIR}/ids-portable.log"
 
 # Environment variables with defaults
+IDS_MODE="${IDS_MODE:-portable}"
 INTERFACE="${INTERFACE:-eth0}"
 SPLUNK_HEC_URL="${SPLUNK_HEC_URL:-http://172.20.2.8:8088/services/collector}"
 SPLUNK_HEC_TOKEN="${SPLUNK_HEC_TOKEN:-}"
@@ -49,35 +51,39 @@ log_error() {
 pre_flight_checks() {
     log_info "Running pre-flight checks..."
 
-    # 1a: Check Snort binary
-    if [ ! -x "$(command -v snort)" ]; then
+    # Check Snort binary
+    if ! command -v snort >/dev/null 2>&1; then
         log_error "Snort binary not found!"
         exit 1
     fi
-    log_info "Snort binary found: $(snort -V 2>&1)"
 
-    # 1b: Check configuration file
+    log_info "Snort binary found:"
+    snort -V | head -n 15 || true
+
+    # Check configuration file
     if [ ! -f "${SNORT_CONF}" ]; then
         log_error "Config file not found: ${SNORT_CONF}"
         exit 1
     fi
     log_info "Config file found: ${SNORT_CONF}"
 
-    # 1c: Check rules file
+    # Check rules file
     if [ -f "${SNORT_RULES}" ]; then
         log_info "Rules file found: ${SNORT_RULES}"
     else
-        log_warn "Rules file not found: ${SNORT_RULES} (will use built-in rules if any)"
+        log_warn "Rules file not found: ${SNORT_RULES}."
     fi
 
-    # 1d: Check log directory writability
+    # Check log directory
+    mkdir -p "${SNORT_LOG_DIR}"
+
     if [ ! -w "${SNORT_LOG_DIR}" ]; then
         log_error "Log directory not writable: ${SNORT_LOG_DIR}"
         exit 1
     fi
     log_info "Log directory writable: ${SNORT_LOG_DIR}"
 
-    # 1e: Check Splunk HEC token (warning if empty)
+    # Check Splunk HEC token
     if [ -z "${SPLUNK_HEC_TOKEN}" ]; then
         log_warn "SPLUNK_HEC_TOKEN is empty! Alerts will not be authenticated."
         log_warn "Set SPLUNK_HEC_TOKEN in docker-compose environment."
@@ -85,31 +91,51 @@ pre_flight_checks() {
         log_info "Splunk HEC token is set (length: ${#SPLUNK_HEC_TOKEN} chars)"
     fi
 
-    # 1f: Validate interfaces exist
-    IFS=':' read -ra IFACES <<< "${INTERFACE}"
-    for iface in "${IFACES[@]}"; do
-        if ! ip link show "${iface}" &>/dev/null; then
-            log_warn "Interface '${iface}' not found. Snort may not capture on it."
-        else
-            log_info "Interface '${iface}' exists and ready."
-        fi
-    done
+    # Validate interface names only if possible.
+    # Some minimal Docker images do not include the 'ip' command.
+    if command -v ip >/dev/null 2>&1; then
+        IFS=':' read -ra IFACES <<< "${INTERFACE}"
+        for iface in "${IFACES[@]}"; do
+            if ! ip link show "${iface}" >/dev/null 2>&1; then
+                log_warn "Interface '${iface}' not found. Snort may not capture on it."
+            else
+                log_info "Interface '${iface}' exists and ready."
+            fi
+        done
+    else
+        log_warn "'ip' command not found. Skipping interface pre-check."
+        log_info "Available interfaces from /proc/net/dev:"
+        cat /proc/net/dev || true
+    fi
 
+    log_info "IDS mode: ${IDS_MODE}"
     log_info "Pre-flight checks passed!"
 }
 
 # =============================================================================
-# STEP 2: Validate Snort configuration
+# STEP 2: Validate Snort configuration and rules
 # =============================================================================
 validate_config() {
-    log_info "Validating Snort configuration..."
+    log_info "Validating Snort configuration and custom rules..."
+
     local VALIDATE_OUTPUT
-    if VALIDATE_OUTPUT=$(snort -c "${SNORT_CONF}" -T 2>&1); then
-        log_info "Config validation: PASSED"
+
+    if [ -f "${SNORT_RULES}" ]; then
+        if VALIDATE_OUTPUT=$(snort -c "${SNORT_CONF}" -R "${SNORT_RULES}" -T 2>&1); then
+            log_info "Config validation: PASSED"
+        else
+            log_error "Config validation: FAILED"
+            log_error "${VALIDATE_OUTPUT}"
+            exit 1
+        fi
     else
-        log_error "Config validation: FAILED"
-        log_error "${VALIDATE_OUTPUT}"
-        exit 1
+        if VALIDATE_OUTPUT=$(snort -c "${SNORT_CONF}" -T 2>&1); then
+            log_info "Config validation: PASSED"
+        else
+            log_error "Config validation: FAILED"
+            log_error "${VALIDATE_OUTPUT}"
+            exit 1
+        fi
     fi
 }
 
@@ -118,54 +144,111 @@ validate_config() {
 # =============================================================================
 show_rules_summary() {
     log_info "Custom rules summary (zta.rules):"
+
     if [ -f "${SNORT_RULES}" ]; then
         local total_rules
         total_rules=$(grep -cE '^alert' "${SNORT_RULES}" 2>/dev/null || echo 0)
+
         log_info "  - Total custom rules defined: ${total_rules}"
-        local categories
-        categories=$(grep -oP 'msg:"\[ZTA-\d+\]' "${SNORT_RULES}" | wc -l)
-        log_info "  - All rules have ZTA prefix identifiers"
+        log_info "  - Rules file loaded from: ${SNORT_RULES}"
     else
         log_warn "  - No custom rules file found"
     fi
 }
 
 # =============================================================================
-# STEP 4: Start Snort in foreground
+# STEP 4A: Portable IDS mode
 # =============================================================================
-start_snort() {
-    log_info "Starting Snort 3 in IDS mode..."
-    log_info "Monitoring interfaces: ${INTERFACE}"
+start_portable_mode() {
+    log_info "Starting IDS in portable mode..."
+    log_info "Portable mode is designed to work on Docker Desktop Windows, macOS and Linux."
+    log_info "Snort configuration and custom rules have been validated."
+    log_warn "Live packet capture is skipped to avoid raw socket compatibility issues."
+    log_info "Container will stay alive for integration testing."
 
-    # Snort 3 accepts colon-separated interfaces with -i
-    exec snort -c "${SNORT_CONF}" \
-               -i "${INTERFACE}" \
-               -l "${SNORT_LOG_DIR}" \
-               -A alert_fast \
-               --plugin-path /usr/local/lib/daq \
-               2>&1
+    {
+        echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [INFO] IDS portable mode started"
+        echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [INFO] Snort configuration validated successfully"
+        echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [INFO] Custom rules validated successfully"
+        echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [WARN] Live packet capture disabled in portable mode"
+    } >> "${SNORT_PORTABLE_LOG}"
+
+    tail -f "${SNORT_PORTABLE_LOG}"
 }
 
 # =============================================================================
-# STEP 5: Shutdown handler (only reached if exec fails)
+# STEP 4B: Live IDS mode
+# =============================================================================
+start_live_mode() {
+    log_info "Starting Snort 3 in live IDS mode..."
+    log_info "Monitoring interface: ${INTERFACE}"
+    log_warn "Live mode requires packet capture support from the host environment."
+    log_warn "If this fails on Docker Desktop Windows/Mac, use IDS_MODE=portable."
+
+    if [ -f "${SNORT_RULES}" ]; then
+        exec snort -c "${SNORT_CONF}" \
+                   -R "${SNORT_RULES}" \
+                   -i "${INTERFACE}" \
+                   -l "${SNORT_LOG_DIR}" \
+                   -A alert_fast \
+                   --plugin-path /usr/local/lib/daq \
+                   2>&1
+    else
+        exec snort -c "${SNORT_CONF}" \
+                   -i "${INTERFACE}" \
+                   -l "${SNORT_LOG_DIR}" \
+                   -A alert_fast \
+                   --plugin-path /usr/local/lib/daq \
+                   2>&1
+    fi
+}
+
+# =============================================================================
+# STEP 5: Select IDS mode
+# =============================================================================
+start_ids() {
+    case "${IDS_MODE}" in
+        portable)
+            start_portable_mode
+            ;;
+
+        live)
+            start_live_mode
+            ;;
+
+        *)
+            log_error "Invalid IDS_MODE: ${IDS_MODE}"
+            log_error "Use IDS_MODE=portable or IDS_MODE=live"
+            exit 1
+            ;;
+    esac
+}
+
+# =============================================================================
+# STEP 6: Shutdown handler
 # =============================================================================
 shutdown_handler() {
     echo ""
-    log_info "Received shutdown signal. Stopping Snort..."
+    log_info "Received shutdown signal. Stopping IDS container..."
+
     local SNORT_PID
     SNORT_PID=$(pgrep -x snort || true)
-    if [ -n "$SNORT_PID" ]; then
-        log_info "Sending SIGTERM to Snort (PID: $SNORT_PID)"
-        kill -TERM "$SNORT_PID" 2>/dev/null || true
+
+    if [ -n "${SNORT_PID}" ]; then
+        log_info "Sending SIGTERM to Snort (PID: ${SNORT_PID})"
+        kill -TERM "${SNORT_PID}" 2>/dev/null || true
         sleep 2
-        if kill -0 "$SNORT_PID" 2>/dev/null; then
+
+        if kill -0 "${SNORT_PID}" 2>/dev/null; then
             log_warn "Snort did not stop gracefully, sending SIGKILL"
-            kill -KILL "$SNORT_PID" 2>/dev/null || true
+            kill -KILL "${SNORT_PID}" 2>/dev/null || true
         fi
+
         log_info "Snort stopped."
     else
         log_info "No Snort process found."
     fi
+
     log_info "Container shutting down."
     exit 0
 }
@@ -184,13 +267,7 @@ main() {
     pre_flight_checks
     validate_config
     show_rules_summary
-
-    start_snort
-
-    # If exec fails (e.g., due to invalid arguments), fall back
-    log_error "Snort exec failed. Please check configuration."
-    log_error "Falling back to log monitoring mode (no IDS process)..."
-    tail -f /dev/null
+    start_ids
 }
 
 main
