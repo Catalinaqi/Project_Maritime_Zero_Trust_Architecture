@@ -189,6 +189,9 @@ services:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
       - ./configs/opa/policies/test-policy.rego:/policies/test-policy.rego:ro
       - ./configs/opa/data/roles.json:/policies/roles.json:ro
+      - ./configs/opa/data/devices.json:/policies/devices.json:ro
+      - ./configs/opa/data/networks.json:/policies/networks.json:ro
+      - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
     environment:
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
@@ -202,6 +205,15 @@ services:
       - "--log-level=debug"
       - "--log-format=json"
       - "/policies"
+
+    # 2. Modificato in wget per compatibilità nativa
+    #healthcheck:
+    #  test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+    #  interval: 10s
+    #  timeout: 5s
+    #  retries: 5
+    #  start_period: 15s
+
 #    depends_on:
 #      siem_central:
 #        condition: service_started
@@ -233,13 +245,13 @@ services:
         ipv4_address: 172.20.2.7
       backend_net:
         ipv4_address: 172.20.3.7
-      corporate_net:
+      corporate_net: # soc_admin
         ipv4_address: 172.20.10.7
-      vpn_net:
+      vpn_net: # operatore_ancona
         ipv4_address: 172.20.11.7
-      satellite_net:
+      satellite_net: # capitano
         ipv4_address: 172.20.12.7
-      public_net:
+      public_net: # intruso
         ipv4_address: 172.20.13.7
     ports:
       - "8443:8443"             # mTLS ingress — client entry point
@@ -292,13 +304,13 @@ services:
         ipv4_address: 172.20.3.10
       monitoring_net:
         ipv4_address: 172.20.4.10
-      corporate_net:
+      corporate_net: # soc_admin
         ipv4_address: 172.20.10.10
-      vpn_net:
+      vpn_net: # operatore_ancona
         ipv4_address: 172.20.11.10
-      satellite_net:
+      satellite_net: # capitano
         ipv4_address: 172.20.12.10
-      public_net:
+      public_net: # intruso
         ipv4_address: 172.20.13.10
     cap_add:
       - NET_ADMIN
@@ -402,7 +414,6 @@ services:
       vpn_net:
         ipv4_address: 172.20.11.20
     volumes:
-      - ./certs/clients/operatore_ancona:/certs:ro         # certificato utente
       - ./certs/devices/D-001:/certs/device:ro             # certificato device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
@@ -410,11 +421,15 @@ services:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
+      # Dati descrittivi del client simulato
       - CLIENT_NAME=operatore_ancona
       - CLIENT_ROLE=ruolo_banchina
+      # IMPORTANTE: ora il certificato mTLS è quello del dispositivo
       - CLIENT_CERT=/certs/client.crt
       - CLIENT_KEY=/certs/client.key
-      - DEVICE_CERT=/certs/device/device.crt
+      # Identità applicativa dell’utente che sta usando il dispositivo
+      - USER_ID=operatore_ancona
+      # CA usata per verificare il certificato server di Envoy
       - CA_CERT=/ca/ca.crt
 #    depends_on:
 #      pep_gateway:
@@ -446,9 +461,11 @@ services:
       satellite_net:
         ipv4_address: 172.20.12.21
     volumes:
-      - ./certs/clients/capitano_claudia:/certs:ro         # certificato utente
-      - ./certs/devices/D-002:/certs/device:ro             # certificato device
+      # Certificato del dispositivo usato per la connessione mTLS verso Envoy
+      - ./certs/devices/D-002:/certs/device:ro
+      # CA usata per verificare Envoy
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      # Script di test del client
       - ./services/clients/scripts:/scripts:ro
     environment:
       - ENVOY_HOST=pep_gateway
@@ -456,9 +473,11 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=capitano_claudia
       - CLIENT_ROLE=ruolo_equipaggio
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - DEVICE_CERT=/certs/device/device.crt
+      # mTLS = certificato dispositivo
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      # utente applicativo
+      - USER_ID=capitano_claudia
       - CA_CERT=/ca/ca.crt
 #    depends_on:
 #      pep_gateway:
@@ -499,10 +518,12 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=soc_admin
       - CLIENT_ROLE=ruolo_gestione_flotta
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - DEVICE_CERT=/certs/device/device.crt
-      - CA_CERT=/ca/ca.crt
+      # mTLS = certificato dispositivo
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      # utente applicativo
+      - USER_ID=soc_admin
+      - CA_CERT=/ca/ca.cr
 #    depends_on:
 #      pep_gateway:
 #        condition: service_started
