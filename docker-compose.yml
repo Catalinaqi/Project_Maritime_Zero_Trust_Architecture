@@ -130,6 +130,8 @@ services:
         condition: service_healthy
 
     logging:
+
+
       driver: "json-file"
       options:
         max-size: "10m"
@@ -149,8 +151,21 @@ services:
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.6
+
       monitoring_net:
         ipv4_address: 172.20.4.6
+
+      corporate_net:
+        ipv4_address: 172.20.10.6
+
+      vpn_net:
+        ipv4_address: 172.20.11.6
+
+      satellite_net:
+        ipv4_address: 172.20.12.6
+
+      public_net:
+        ipv4_address: 172.20.13.6
 
     ports:
       - "8181:8181"     # Porta REST (per management/ispezione)
@@ -160,6 +175,9 @@ services:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
       - ./configs/opa/policies/test-policy.rego:/policies/test-policy.rego:ro
       - ./configs/opa/data/roles.json:/policies/roles.json:ro
+      - ./configs/opa/data/devices.json:/policies/devices.json:ro
+      - ./configs/opa/data/networks.json:/policies/networks.json:ro
+      - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
 
     environment:
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
@@ -397,8 +415,7 @@ services:
         ipv4_address: 172.20.11.20
 
     volumes:
-      - ./certs/clients/operatore_ancona:/certs:ro         # certificato utente
-      - ./certs/devices/D-001:/certs/device:ro             # certificato device
+      - ./certs/devices/D-001:/certs/device:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
 
@@ -406,11 +423,19 @@ services:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
+
+      # Dati descrittivi del client simulato
       - CLIENT_NAME=operatore_ancona
       - CLIENT_ROLE=ruolo_banchina
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - DEVICE_CERT=/certs/device/device.crt
+
+      # IMPORTANTE: ora il certificato mTLS è quello del dispositivo
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+
+      # Identità applicativa dell’utente che sta usando il dispositivo
+      - USER_ID=operatore_ancona
+
+      # CA usata per verificare il certificato server di Envoy
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -442,9 +467,13 @@ services:
         ipv4_address: 172.20.12.21
 
     volumes:
-      - ./certs/clients/capitano_claudia:/certs:ro         # certificato utente
-      - ./certs/devices/D-002:/certs/device:ro             # certificato device
+      # Certificato del dispositivo usato per la connessione mTLS verso Envoy
+      - ./certs/devices/D-002:/certs/device:ro
+
+      # CA usata per verificare Envoy
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
+
+      # Script di test del client
       - ./services/clients/scripts:/scripts:ro
 
     environment:
@@ -453,9 +482,14 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=capitano_claudia
       - CLIENT_ROLE=ruolo_equipaggio
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - DEVICE_CERT=/certs/device/device.crt
+
+      # mTLS = certificato dispositivo
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+
+      # utente applicativo
+      - USER_ID=capitano_claudia
+
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -487,8 +521,7 @@ services:
         ipv4_address: 172.20.10.20
 
     volumes:
-      - ./certs/clients/soc_admin:/certs:ro                # certificato utente
-      - ./certs/devices/D-SOC:/certs/device:ro             # certificato device
+      - ./certs/devices/D-SOC:/certs/device:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
 
@@ -498,9 +531,14 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=soc_admin
       - CLIENT_ROLE=ruolo_gestione_flotta
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
-      - DEVICE_CERT=/certs/device/device.crt
+
+      # mTLS = certificato dispositivo
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+
+      # utente applicativo
+      - USER_ID=soc_admin
+
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -532,7 +570,7 @@ services:
         ipv4_address: 172.20.13.99
 
     volumes:
-      - ./certs/clients/intruso:/certs:ro
+      - ./certs/devices/D-001:/certs/device:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
 
@@ -542,8 +580,9 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=intruso
       - CLIENT_ROLE=ruolo_non_autorizzato
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      - USER_ID=intruso
       - CA_CERT=/ca/ca.crt
 
     depends_on:

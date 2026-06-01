@@ -1,7 +1,7 @@
 FROM alpine:3.19
 
 # Installazione delle dipendenze necessarie per scaricare i binari ed eseguire la shell
-RUN apk add --no-cache openssl jq bash ca-certificates wget gcompat
+RUN apk add --no-cache openssl jq bash ca-certificates wget curl gcompat
 
 # Scaricamento e installazione dei binari ufficiali di MongoDB Shell (mongosh)
 RUN wget https://downloads.mongodb.com/compass/mongosh-2.2.6-linux-x64.tgz && \

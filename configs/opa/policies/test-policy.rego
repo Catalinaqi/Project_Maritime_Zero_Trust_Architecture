@@ -2,83 +2,146 @@ package envoy.authz
 
 import rego.v1
 
+# Di default ogni richiesta è negata.
 default allow := false
 
-# Lettura metadati con camelCase (protojson)
-request_metadata := input.attributes.metadataContext.filterMetadata["envoy.filters.http.lua"].context_extensions
+# Recupera i metadati creati dal filtro Lua di Envoy.
+lua_metadata := object.get(
+    input.attributes.metadataContext.filterMetadata,
+    "envoy.filters.http.lua",
+    {}
+)
 
-req_collection := request_metadata.collection
-req_command    := request_metadata.command
+request_metadata := object.get(lua_metadata, "context_extensions", {})
 
-# Identità mTLS
-user_principal := input.attributes.source.principal
+# L'utente applicativo arriva dall'header X-User-Id,
+# letto dal filtro Lua e passato a OPA.
+user_id := object.get(request_metadata, "user_id", "unknown")
 
-user_id := "operatore_ancona" if contains(user_principal, "CN=Marco Rossi")
-user_id := "capitano_claudia" if contains(user_principal, "CN=Elena Bianchi")
-user_id := "soc_admin"        if contains(user_principal, "CN=Admin SOC")
+# Risorsa richiesta, ad esempio "risorse" o "dispositivi".
+req_collection := object.get(request_metadata, "collection", "unknown")
 
-user_profile := data.users[user_id]
+# Comando logico richiesto, ad esempio "find", "insert", "update", "delete".
+req_command := object.get(request_metadata, "command", "unknown")
 
-#Check del dispositivio leggendo il l'OU dal certificato
-#device_id := dev if {
-#    # L'OU del certificato contiene il device ID
-#    principal := input.attributes.source.principal
-#    dev := regex.find_n("OU=([^,]+)", principal, 1)[0]
-#    dev != ""
-#}
+# Principal del certificato mTLS.
+# Nella nuova architettura rappresenta il dispositivo.
+device_principal := object.get(input.attributes.source, "principal", "")
 
-#evice_allowed(profile) if {
-#   profile.allowed_devices[_] == device_id
-#}
-
-# Device ID ora viene dall'header HTTP estratto da Lua
-# invece che dall'OU del certificato utente
-device_id := request_metadata.device_cn
-
-device_allowed(profile) if {
-    profile.allowed_devices[_] == device_id
+# Estrae l'identificativo del dispositivo dal subject del certificato mTLS.
+device_id := "D-001" if {
+    contains(device_principal, "CN=D-001")
 }
 
-# Blocca se il certificato device non è presente
-device_present if {
-    request_metadata.device_present == true
+device_id := "D-001" if {
+    contains(device_principal, "CN = D-001")
 }
 
+device_id := "D-002" if {
+    contains(device_principal, "CN=D-002")
+}
 
+device_id := "D-002" if {
+    contains(device_principal, "CN = D-002")
+}
+
+device_id := "D-SOC" if {
+    contains(device_principal, "CN=D-SOC")
+}
+
+device_id := "D-SOC" if {
+    contains(device_principal, "CN = D-SOC")
+}
+
+# Profilo dell'utente letto da roles.json.
+# Con i file JSON montati singolarmente:
+# roles.json viene esposto come data.roles.
+user_profile := data.roles[user_id]
+
+# Profilo del dispositivo letto da devices.json.
+# devices.json viene esposto come data.devices.
+device_profile := data.devices[device_id]
+
+# Regola principale:
+# la richiesta è permessa solo se tutti i controlli sono veri.
 allow if {
-    device_present
+    user_exists
+    device_exists
+    device_trusted
+    network_known
+    access_rule_exists
     resource_allowed(user_profile.allowed_resources, req_collection)
     command_allowed(user_profile.allowed_commands, req_command)
-    device_allowed(user_profile)
     time_allowed(user_profile)
     risk_allowed(user_profile)
-    network_allowed(user_profile)
 }
 
-resource_allowed(allowed_list, collection) if { allowed_list[_] == "*" }
-resource_allowed(allowed_list, collection) if { allowed_list[_] == collection }
-command_allowed(allowed_list, command) if { allowed_list[_] == command }
-
-time_allowed(profile) if {
-    now   := time.clock([time.now_ns(), "Europe/Rome"])
-    current_hour := now[0]
-    start := to_number(substring(profile.time_window_start, 0, 2))
-    end   := to_number(substring(profile.time_window_end,   0, 2))
-    current_hour >= start
-    current_hour <= end
+# Controlla che l'utente esista in roles.json.
+user_exists if {
+    data.roles[user_id]
 }
 
-risk_allowed(profile) if {
-    score := request_metadata.risk_score
-    score <= profile.max_risk_score
+# Controlla che il dispositivo esista in devices.json.
+device_exists if {
+    data.devices[device_id]
 }
 
-risk_allowed(profile) if {
-    not request_metadata.risk_score
+# Controlla che il dispositivo sia trusted.
+device_trusted if {
+    device_profile.trusted == true
 }
 
-network_allowed(profile) if {
+# Identifica la rete sorgente in base all'IP del client.
+current_network := network_name if {
     src_ip := input.attributes.source.address.socketAddress.address
-    subnet := profile.allowed_subnets[_]
-    net.cidr_contains(subnet, src_ip)
+
+    some network_name
+
+    cidr := data.networks[network_name].cidrs[_]
+    net.cidr_contains(cidr, src_ip)
+}
+
+# Controlla che la rete sorgente sia una rete conosciuta.
+network_known if {
+    current_network
+}
+
+# Controlla che esista una regola che autorizza:
+# utente + dispositivo + rete.
+access_rule_exists if {
+    rule := data.access_rules.rules[_]
+    rule.user == user_id
+    rule.device == device_id
+    rule.networks[_] == current_network
+}
+
+# Controlla se la risorsa richiesta è autorizzata.
+resource_allowed(allowed_resources, collection) if {
+    allowed_resources[_] == "*"
+}
+
+resource_allowed(allowed_resources, collection) if {
+    allowed_resources[_] == collection
+}
+
+# Controlla se il comando richiesto è autorizzato.
+command_allowed(allowed_commands, command) if {
+    allowed_commands[_] == command
+}
+
+# Controllo fascia oraria.
+# Per ora il controllo orario è disabilitato per evitare incompatibilità
+# con la versione di OPA usata nel container.
+# La regola verifica solo che i campi esistano nel profilo utente.
+time_allowed(profile) if {
+    profile.time_window_start
+    profile.time_window_end
+}
+
+# Se il risk_score non viene passato, lo consideriamo 0.
+risk_score := object.get(request_metadata, "risk_score", 0)
+
+# Controlla che il rischio sia sotto la soglia massima dell'utente.
+risk_allowed(profile) if {
+    risk_score <= profile.max_risk_score
 }

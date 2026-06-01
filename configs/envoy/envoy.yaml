@@ -53,18 +53,47 @@ static_resources:
               default_source_code:
                 inline_string: |
                   function envoy_on_request(request_handle)
+                      -- Recupera il path della richiesta, ad esempio "/risorse".
                       local path = request_handle:headers():get(":path")
+
+                      -- Recupera il metodo HTTP, ad esempio GET, POST, PUT o DELETE.
                       local method = request_handle:headers():get(":method")
+
+                      -- Estrae la risorsa richiesta dal path.
+                      -- Esempio: "/risorse" diventa "risorse".
                       local collection = string.match(path, "^/([^/]+)")
-                      local command_map = {GET="find", POST="insert", PUT="update", DELETE="delete"}
+
+                      -- Mappa il metodo HTTP in un comando logico usato da OPA.
+                      local command_map = {
+                          GET = "find",
+                          POST = "insert",
+                          PUT = "update",
+                          DELETE = "delete"
+                      }
+
+                      -- Se il metodo non è riconosciuto, usa "unknown".
                       local command = command_map[method] or "unknown"
+
+                      -- Recupera l'utente applicativo.
+                      -- In questa architettura il certificato mTLS identifica il dispositivo,
+                      -- mentre l'utente viene passato come identità applicativa.
+                      local user_id = request_handle:headers():get("x-user-id") or "unknown"
+
+                      -- Salva i metadati che verranno inviati a OPA tramite ext_authz.
                       request_handle:streamInfo():dynamicMetadata():set(
                           "envoy.filters.http.lua",
                           "context_extensions",
-                          {command=command, collection=collection or "unknown", path=path}
+                          {
+                              command = command,
+                              collection = collection or "unknown",
+                              path = path,
+                              user_id = user_id
+                          }
                       )
                   end
-                  function envoy_on_response(response_handle) end
+
+                  function envoy_on_response(response_handle)
+                  end
 
 
           # 2. Filtro di autorizzazione esterna verso OPA
