@@ -1,8 +1,7 @@
 -- =============================================================================
--- Snort 3 IDS Configuration - Maritime Zero Trust
+-- Snort 3 IDS Configuration - Maritime Zero Trust Architecture
 -- =============================================================================
--- Project: Maritime - Zero Trust Architecture (ZTA)
--- Author: Person 1 - Network Guardian (Snort/IDS)
+-- Author: Network Guardian (Snort/IDS)
 -- Component: Layer 1 Intrusion Detection System
 -- Purpose: Define Snort 3 engine settings, inspection modules,
 --          and output channels for ZTA traffic analysis

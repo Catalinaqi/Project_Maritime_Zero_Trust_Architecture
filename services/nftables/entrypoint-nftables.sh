@@ -2,11 +2,11 @@
 # ============================================
 # Entrypoint Script for NFTables Firewall
 # ============================================
-# Project: Adria Ferries Maritime Security
-# Author: Persona 1 - Network Guardian
+# Author: Network Guardian
 # Component: Layer 1 Network Security
 # Purpose: Load NFTables rules and maintain container
-# Last Updated: 2026-05-11
+# Data Creation: 2026-05-11
+# Last Updated: 2026-06-01
 # ============================================
 # Security Model:
 #   - Fail secure: If rules fail to load, container exits
@@ -226,7 +226,7 @@ main() {
     echo ""
     echo "╔═══════════════════════════════════════════════╗"
     echo "║     🔥 NFTABLES FIREWALL - ZERO TRUST        ║"
-    echo "║     Adria Ferries Maritime Security           ║"
+    echo "║     Maritime Security           ║"
     echo "║     Layer 1 - Network Guardian                ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo ""

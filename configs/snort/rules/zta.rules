@@ -1,8 +1,7 @@
 # ============================================
 # ZTA Custom Rules - Snort 3 IDS
 # ============================================
-# Project: Adria Ferries Maritime Security
-# Author: Persona 1 - Network Guardian
+# Author: Network Guardian (Snort/IDS)
 # Component: Layer 1 Intrusion Detection System
 # Purpose: Detect and alert on 15 attack types
 # Data Creation: 2026-05-11
@@ -14,7 +13,7 @@
 #   - offset/depth → inline options (no standalone keywords)
 #   - within:100 → distance 0 (Snort 3 compatible)
 #   - dwithin:100 → removed, use pcre or distance
-#   - Regla 11: sin byte_test, solo content + pcre para versiones débiles
+#   - Rule 11: no byte_test, only content + pcre for weak versions
 # ============================================
 
 # ============================================================

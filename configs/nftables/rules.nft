@@ -1,13 +1,13 @@
 #!/usr/sbin/nft -f
 
 # ============================================
-# NFTables Firewall Rules - Zero Trust Architecture
+# NFTables Firewall Rules - Maritime Zero Trust Architecture
 # ============================================
-# Project: Adria Ferries Maritime Security
-# Author: Persona 1 - Network Guardian
+# Author: Network Guardian
 # Component: Layer 1 Network Security
 # Purpose: Packet filtering and MongoDB isolation
-# Last Updated: 2026-05-11
+# Data Creation: 2026-05-11
+# Last Updated: 2026-06-01
 # ============================================
 # Security Model:
 #   - Default DENY all traffic (fail secure)

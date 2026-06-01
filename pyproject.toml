@@ -6,6 +6,7 @@
 [tool.poetry]
 name = "maritime-zta"
 version = "1.0.0"
+package-mode = false
 description = "Enterprise-grade Zero Trust Architecture for Maritime Operations"
 authors = ["Security Team <security@maritime-ops.local>"]
 license = "MIT"

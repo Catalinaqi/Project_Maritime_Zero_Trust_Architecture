@@ -1,11 +1,11 @@
 # ============================================
 # Dockerfile for NFTables Firewall
 # ============================================
-# Project: Adria Ferries Maritime Security
-# Author: Persona 1 - Network Guardian
+# Author: Network Guardian
 # Component: Layer 1 Network Security
 # Purpose: Containerized NFTables firewall for Zero Trust perimeter
-# Last Updated: 2026-05-11
+# Data Creation: 2026-05-11
+# Last Updated: 2026-06-01
 # ============================================
 # Security Model:
 #   - Minimal image: Alpine with only nftables
@@ -56,7 +56,7 @@ ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
 # ============================================
 # Layer 5: Container metadata
 # ============================================
-LABEL maintainer="persona1@adriaferries.com"
+LABEL maintainer="soport01@maritime.com"
 LABEL version="1.1.0"
 LABEL description="NFTables perimeter firewall for Zero Trust Architecture"
 LABEL layer="1"

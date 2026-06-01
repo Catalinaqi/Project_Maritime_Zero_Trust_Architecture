@@ -2,12 +2,14 @@
 # =============================================================================
 # Snort 3 IDS Entrypoint Script - Maritime Zero Trust
 # =============================================================================
-# Project: Maritime - Zero Trust Architecture (ZTA)
+# Author: Network Guardian (Snort/IDS)
 # Component: Layer 1 Intrusion Detection System
 # Purpose:
 #   - Validate Snort 3 configuration and custom rules.
 #   - Start Snort in live IDS mode when supported.
 #   - Provide a portable mode for Docker Desktop Windows/Mac/Linux.
+# Data Creation: 2026-05-11
+# Last Updated: 2026-06-01
 # =============================================================================
 
 set -euo pipefail

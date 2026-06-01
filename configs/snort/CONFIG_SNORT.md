@@ -2,7 +2,8 @@
 
 ## Purpose
 
-Layer 1 Intrusion Detection System (IDS) using **Snort 3** to detect and alert on attack patterns targeting the Adria Ferries maritime Zero Trust Architecture.
+Layer 1 Intrusion Detection System (IDS) using **Snort 3** to detect and alert on 
+attack patterns targeting the maritime Zero Trust Architecture.
 
 Snort serves as the **second pair of eyes** after the firewall, providing:
 - **Signature-based detection** — 15 custom rules (SID 1000001–1000015) covering 6 attack categories
@@ -163,10 +164,3 @@ docker exec ids_network_monitor tail -5 /var/log/snort/alert
 - [OWASP SQL Injection](https://owasp.org/www-community/attacks/SQL_Injection)
 - [CVE-2014-0160 Heartbleed](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-0160)
 
----
-
-## Version History
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0.0 | 2026-05-11 | Persona 1 | Initial configuration — 15 rules, 6 categories, Splunk integration |

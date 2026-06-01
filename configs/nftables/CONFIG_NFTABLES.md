@@ -1,7 +1,7 @@
 # 🔥 NFTables Firewall Configuration
 
 ## Purpose
-Layer 1 Network Security using NFTables to enforce Zero Trust Architecture principles for Adria Ferries maritime operations.
+Layer 1 Network Security using NFTables to enforce Zero Trust Architecture principles operations.
 
 The firewall serves as the **first line of defense**, ensuring:
 - **Default DENY** - No traffic is trusted by default
@@ -16,7 +16,8 @@ The firewall serves as the **first line of defense**, ensuring:
 
 ### Architecture Decision: Docker Bridge Networks
 
-The `docker-compose.yml` uses **4 separate Docker bridge networks** (not `network_mode: host`) for Docker Desktop compatibility (Windows/Mac) and better network isolation.
+The `docker-compose.yml` uses **4 separate Docker bridge networks** (not `network_mode: host`) for 
+Docker Desktop compatibility (Windows/Mac) and better network isolation.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -56,7 +57,8 @@ Since the firewall connects to 3 networks, NFTables sees traffic through differe
 | `eth1` | `backend_net` | 172.20.3.0/24 | `172.20.3.10` | Database backend (MongoDB) |
 | `eth2` | `monitoring_net` | 172.20.4.0/24 | `172.20.4.10` | Monitoring and logging |
 
-> **Note**: The firewall acts as a **gateway between these networks**, forwarding allowed traffic between them (e.g., Envoy on zerotrust_net → MongoDB on backend_net via eth0→eth1).
+> **Note**: The firewall acts as a **gateway between these networks**, forwarding allowed traffic between them 
+> (e.g., Envoy on zerotrust_net → MongoDB on backend_net via eth0→eth1).
 
 ### Service IP Addresses (Static - from docker-compose.yml)
 
@@ -404,7 +406,7 @@ docker exec firewall_perimeter ip route
 
 | Persona | Component | Integration |
 |---------|-----------|-------------|
-| **Persona 2** (Giada) | Envoy Proxy (172.20.2.7) | Firewall allows Envoy (8443) as sole entry point; routes Envoy→MongoDB |
+| **Persona 2** | Envoy Proxy (172.20.2.7) | Firewall allows Envoy (8443) as sole entry point; routes Envoy→MongoDB |
 | **Persona 3** | OPA Engine (172.20.2.6) | Firewall restricts OPA access (8181) to Envoy only |
 | **Persona 4** | Splunk SIEM (172.20.2.8) | Firewall allows log ingestion (8088) for all services |
 | **Persona 4** | MongoDB DB (172.20.3.5) | Firewall enforces MongoDB isolation (27017) |
@@ -422,15 +424,6 @@ After firewall is running:
   3. MongoDB (Persona 4) is isolated from direct connections
   4. Snort alerts can flow to Splunk securely
 ```
-
----
-
-## Version History
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0.0 | 2026-05-11 | Persona 1 | Initial ZTA ruleset with static IPs (172.20.0.x) |
-| 1.1.0 | 2026-05-11 | Persona 1 | Updated for Docker Desktop: removed network_mode:host, switched to segmented bridge networks (172.20.2.x/3.x/4.x/5.x), added cross-network forwarding rules (eth0/eth1/eth2), updated all IPs to match new docker-compose.yml |
 
 ---
 

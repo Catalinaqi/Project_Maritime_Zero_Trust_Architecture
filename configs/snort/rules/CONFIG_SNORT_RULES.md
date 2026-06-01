@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Layer 1 Intrusion Detection System (IDS) using **Snort 3** to detect and alert on attack patterns targeting the Adria Ferries maritime Zero Trust Architecture.
+Layer 1 Intrusion Detection System (IDS) using **Snort 3** to detect and alert on attack patterns.
 
 Snort serves as the **second pair of eyes** after the firewall, providing:
 - **Signature-based detection** - Known attack patterns identified by 15 custom rules (SID 1000001-1000015)
@@ -355,14 +355,6 @@ Attack Packet -> eth0/eth1/eth2/eth3 -> Snort Detection Engine -> Rule Match (SI
 | Splunk not receiving | No alerts in SIEM | Check SPLUNK_HEC_URL and SPLUNK_HEC_TOKEN environment variables |
 | False positives | Alert on legit traffic | Adjust detection_filter thresholds |
 | HOME_NET not working | Rules fire everywhere | Verify HOME_NET = 172.20.0.0/16 in snort.lua |
-
----
-
-## Version History
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0.0 | 2026-05-11 | Persona 1 | Initial 15 rules, 6 categories, Splunk integration |
 
 ---
 

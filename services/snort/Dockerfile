@@ -1,12 +1,11 @@
 # ============================================
 # Dockerfile for Snort 3 IDS Container
 # ============================================
-# Project: Adria Ferries Maritime Security
-# Author: Persona 1 - Network Guardian
+# Author: Network Guardian (Snort/IDS)
 # Component: Layer 1 Intrusion Detection System
 # Build: Compiles Snort 3.9.2.0 + libdaq + dnet fix
-# Creato: 2026-05-15
-# Last Updated:
+# Data Creation: 2026-05-15
+# Last Updated: 2026-06-01
 # ============================================
 
 
@@ -79,20 +78,16 @@ RUN ldconfig
 # STEP 7: System Hardening
 RUN mkdir -p /etc/snort/rules /var/log/snort && \
     groupadd --gid 1000 snort && \
-    useradd --uid 1000 --gid snort --no-create-home --shell /bin/bash snort
+    useradd --uid 1000 --gid snort --no-create-home --shell /bin/bash snort && \
+    chown -R snort:snort /var/log/snort
 
-# STEP 6b: Copy Snort configuration
-COPY configs/snort/snort.lua /etc/snort/snort.lua
-COPY configs/snort/rules/ /etc/snort/rules/
-RUN chown -R snort:snort /var/log/snort /etc/snort
-
-#COPY entrypoint-snort.sh /entrypoint.sh
-COPY services/snort/entrypoint-snort.sh /entrypoint.sh
+# STEP 8: Copy Snort configuration
+COPY entrypoint-snort.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER snort
 
-# STEP 8: Health Check
+# STEP 9: Health Check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD pgrep snort > /dev/null || exit 1
 
