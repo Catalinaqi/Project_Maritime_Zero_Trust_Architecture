@@ -78,18 +78,21 @@ static_resources:
                       -- In questa architettura il certificato mTLS identifica il dispositivo,
                       -- mentre l'utente viene passato come identità applicativa.
                       local user_id = request_handle:headers():get("x-user-id") or "unknown"
+                      local risk_score_header = request_handle:headers():get("x-risk-score") or "0"
+                      local risk_score = tonumber(risk_score_header) or 0
 
                       -- Salva i metadati che verranno inviati a OPA tramite ext_authz.
                       request_handle:streamInfo():dynamicMetadata():set(
-                          "envoy.filters.http.lua",
-                          "context_extensions",
-                          {
-                              command = command,
-                              collection = collection or "unknown",
-                              path = path,
-                              user_id = user_id
-                          }
-                      )
+                      "envoy.filters.http.lua",
+                      "context_extensions",
+                      {
+                          command = command,
+                          collection = collection or "unknown",
+                          path = path,
+                          user_id = user_id,
+                          risk_score = risk_score
+                      }
+                  )
                   end
 
                   function envoy_on_response(response_handle)

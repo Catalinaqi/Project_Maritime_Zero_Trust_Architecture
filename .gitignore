@@ -1,11 +1,9 @@
-# ============================================================================
-# .gitignore - Maritime Zero Trust Architecture
-# CRITICAL: Never commit secrets, certificates, or sensitive data
-# ============================================================================
+# ====================
+
+# SECRETS & CERTIFICATES
 
 # ====================
-# SECRETS & CERTIFICATES - NEVER COMMIT
-# ====================
+
 *.key
 *.crt
 *.pem
@@ -15,8 +13,6 @@
 *.csr
 *.der
 
-
-# Environment files with secrets
 .env
 .env.local
 .env.*.local
@@ -25,99 +21,65 @@ secrets/
 *.token
 
 # ====================
-# DOCKER
+
+# DOCKER / RUNTIME DATA
+
 # ====================
-# Override files (may contain local configs)
+
 docker-compose.override.yml
 docker-compose.local.yml
 
-# Docker ignore files
-services/snort/.dockerignore
-
-# Docker volumes and data
-**/data/
-**/logs/
 volumes/
+mongo_data/
+mongo_config/
+mongo_audit_logs/
+splunk_data/
+splunk_etc/
+envoy_logs/
+snort_logs/
+nftables_logs/
 
 # ====================
-# LOGS & MONITORING
+
+# LOGS
+
 # ====================
-*.log
+
 logs/
-/var/log/
+*.log
 *.pcap
 *.cap
 
-# Service-specific logs
-splunk_data/
-splunk_etc/
-mongo_data/
-mongo_config/
-envoy_logs/
-snort_logs/
+# ====================
+
+# KEEP OPA POLICY DATA
 
 # ====================
+
+!configs/opa/data/
+!configs/opa/data/*.json
+
+# ====================
+
 # PYTHON
+
 # ====================
-# Byte-compiled / optimized / DLL files
-__pycache__/
+
+**pycache**/
 *.py[cod]
-*$py.class
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
 .venv/
 venv/
-ENV/
 env/
-.virtualenv/
-
-# Poetry
-poetry.lock
-.poetry/
-
-# Testing
 .pytest_cache/
 .coverage
-.coverage.*
 htmlcov/
-.tox/
-.nox/
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# Type checking
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pytype/
 
 # ====================
-# NODE.JS (if any)
+
+# NODE
+
 # ====================
+
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -126,56 +88,34 @@ package-lock.json
 yarn.lock
 
 # ====================
-# IDEs & EDITORS
-# ====================
-# VSCode
-.vscode/
-*.code-workspace
 
-# JetBrains IDEs (PyCharm, IntelliJ)
+# IDE / EDITOR
+
+# ====================
+
+.vscode/
 .idea/
 *.iml
-*.iws
-*.ipr
-
-# Vim
 *.swp
 *.swo
 *~
-.*.swp
-.*.swo
-
-# Emacs
-*~
-\#*\#
-.\#*
-
-# Sublime Text
-*.sublime-project
-*.sublime-workspace
 
 # ====================
-# OPERATING SYSTEM
+
+# OS FILES
+
 # ====================
-# macOS
+
 .DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Windows
 Thumbs.db
-ehthumbs.db
 Desktop.ini
-$RECYCLE.BIN/
-
-# Linux
-.directory
-.Trash-*
 
 # ====================
-# TEMPORARY FILES
+
+# TEMPORARY / BACKUP
+
 # ====================
+
 *.tmp
 *.temp
 *.bak
@@ -183,46 +123,15 @@ $RECYCLE.BIN/
 *.old
 *.orig
 *.cache
-
-# ====================
-# PROJECT SPECIFIC
-# ====================
-# Testing outputs
-test-results/
-test-reports/
-*.test.log
-
-# Generated documentation
-docs/_build/
-docs/.doctrees/
-
-# Backup files
-*.backup
 backup/
 backups/
 
-# Local development
-.local/
-local/
+# ====================
 
-# Terraform (if used for IaC)
-.terraform/
-*.tfstate
-*.tfstate.backup
-
-# Kubernetes (if used)
-*.kubeconfig
+# TEST OUTPUTS
 
 # ====================
-# SECURITY SCAN RESULTS
-# ====================
-trivy-results.json
-grype-results.json
-snyk-results.json
-scan-results/
 
-# ====================
-# CI/CD
-# ====================
-.circleci/local/
-.gitlab-ci-local/
+test-results/
+test-reports/
+*.test.log

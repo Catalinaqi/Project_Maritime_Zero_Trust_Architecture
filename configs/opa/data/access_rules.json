@@ -1,0 +1,41 @@
+{
+  "access_rules": {
+    "rules": [
+      {
+        "user": "operatore_ancona",
+        "device": "D-001",
+        "networks": ["vpn_net"]
+      },
+      {
+        "user": "operatore_ancona",
+        "device": "D-002",
+        "networks": ["satellite_net"]
+      },
+      {
+        "user": "capitano_claudia",
+        "device": "D-001",
+        "networks": ["vpn_net"]
+      },
+      {
+        "user": "capitano_claudia",
+        "device": "D-002",
+        "networks": ["satellite_net"]
+      },
+      {
+        "user": "soc_admin",
+        "device": "D-SOC",
+        "networks": ["corporate_net"]
+      },
+      {
+        "user": "soc_admin",
+        "device": "D-001",
+        "networks": ["vpn_net"]
+      },
+      {
+        "user": "soc_admin",
+        "device": "D-002",
+        "networks": ["satellite_net"]
+      }
+    ]
+  }
+}

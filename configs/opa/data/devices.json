@@ -1,0 +1,22 @@
+{
+  "devices": {
+    "D-001": {
+      "common_name": "D-001",
+      "type": "terminale_porto",
+      "description": "Terminale operativo del porto di Ancona",
+      "trusted": true
+    },
+    "D-002": {
+      "common_name": "D-002",
+      "type": "terminale_nave",
+      "description": "Terminale di bordo / ponte comando",
+      "trusted": true
+    },
+    "D-SOC": {
+      "common_name": "D-SOC",
+      "type": "postazione_soc",
+      "description": "Postazione del Security Operation Center",
+      "trusted": true
+    }
+  }
+}

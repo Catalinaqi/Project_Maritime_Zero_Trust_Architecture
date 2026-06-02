@@ -1,0 +1,40 @@
+{
+  "roles": {
+    "operatore_ancona": {
+      "common_name": "Marco Rossi",
+      "role": "ruolo_banchina",
+      "allowed_resources": ["risorse", "dispositivi"],
+      "allowed_commands": ["find"],
+      "time_window_start": "00:00",
+      "time_window_end": "23:59",
+      "max_risk_score": 50
+    },
+    "capitano_claudia": {
+      "common_name": "Elena Bianchi",
+      "role": "ruolo_equipaggio",
+      "allowed_resources": ["risorse", "dispositivi"],
+      "allowed_commands": ["find", "insert", "update"],
+      "time_window_start": "00:00",
+      "time_window_end": "23:59",
+      "max_risk_score": 70
+    },
+    "soc_admin": {
+      "common_name": "Admin SOC",
+      "role": "ruolo_gestione_flotta",
+      "allowed_resources": ["*"],
+      "allowed_commands": ["find", "insert", "update", "delete"],
+      "time_window_start": "00:00",
+      "time_window_end": "23:59",
+      "max_risk_score": 100
+    },
+    "intruso": {
+      "common_name": "hacker_esterno",
+      "role": "unknown",
+      "allowed_resources": [],
+      "allowed_commands": [],
+      "time_window_start": "00:00",
+      "time_window_end": "00:00",
+      "max_risk_score": 0
+    }
+  }
+}
