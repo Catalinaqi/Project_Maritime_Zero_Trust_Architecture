@@ -1,52 +1,18 @@
-# ==============================================================================
-# Maritime Zero Trust Architecture — Docker Compose
-# ==============================================================================
-#
-# ARCHITECTURE LAYERS
-# ───────────────────
-# Layer 1 — Network Security : firewall_perimeter (nftables) | ids_network_monitor (Snort 3)
-# Layer 2 — Enforcement PEP  : pep_gateway (Envoy + mTLS)
-# Layer 3 — Decision PDP     : pdp_engine (OPA)
-# Layer 4 — Data & Observ.   : db_primary (MongoDB) | api_backend | siem_central (Splunk)
-#
-# PROFILES
-# ────────
-# core     → stable, start once, never rebuild
-# security → enforcement + IDS/firewall, configs via volume mount
-# testing  → short-lived test clients, one per trust zone
-#
-# DAILY WORKFLOW
-# ──────────────
-# docker compose --profile core up -d
-# docker compose --profile core --profile security up -d
-# docker compose --profile core --profile security --profile testing up -d
-# docker compose --profile security restart
-# docker compose build ids_network_monitor   ← only when Dockerfile changes
-#
-# NO REBUILD NEEDED FOR
-# ─────────────────────
-# configs/snort/rules/*.rules       → volume mount, live
-# configs/snort/snort.lua           → volume mount, live
-# configs/envoy/envoy.yaml          → volume mount, live
-# configs/envoy/mongo_inspector.lua → volume mount, live
-# configs/nftables/rules.nft        → volume mount, live
-# configs/opa/policies/*.rego       → volume mount, OPA hot-reloads
-# certs/**                          → volume mount, restart service only
-# ==============================================================================
+# ============================================
+# Maritime - Zero Trust Architecture - Docker Compose
+# ============================================
 
 services:
+  # ============================================================================
+  # LAYER 4: OBSERVABILITY - SIEM
+  # ============================================================================
 
-  # ============================================================================
-  # [LAYER 4 | OBSERVABILITY] SIEM — Splunk 9.1
-  # Receives HEC events from Snort, Envoy, OPA.
-  # profile: core — start once, never rebuild.
-  # ============================================================================
   siem_central:
     image: splunk/splunk:9.1
     container_name: siem_central
     hostname: splunk-siem
     restart: unless-stopped
-    profiles: [core]
+
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.8
@@ -54,25 +20,34 @@ services:
         ipv4_address: 172.20.3.8
       monitoring_net:
         ipv4_address: 172.20.4.8
+
     ports:
-      - "8000:8000"   # Splunk Web UI
-      - "8088:8088"   # HTTP Event Collector (HEC)
+      - "8000:8000"
+      - "8088:8088"
+
     volumes:
       - splunk_data:/opt/splunk/var
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
       - mongo_audit_logs:/var/log/mongodb
+      #risk_score
+      - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
+      - opa_risk_data:/opa_data
+
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - SPLUNK_ROLE=splunk_standalone
+      - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=false
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 90s
+
     logging:
       driver: "json-file"
       options:
@@ -80,17 +55,15 @@ services:
         max-file: "3"
 
   # ============================================================================
-  # [LAYER 4 | DATA] Primary Database — MongoDB 7.0
-  # NOT exposed outside host — reachable only by api_backend on backend_net.
-  # Audit logs shared with Splunk via named volume.
-  # profile: core — start once, never rebuild.
+  # LAYER 4: DATA - MongoDB
   # ============================================================================
+
   db_primary:
     image: mongo:7.0
     container_name: db_primary
     hostname: mongo-primary
     restart: unless-stopped
-    profiles: [core]
+
     networks:
       backend_net:
         ipv4_address: 172.20.3.5
@@ -105,16 +78,19 @@ services:
       - ./configs/mongodb/mongod.conf:/etc/mongod.conf:ro
       - ./configs/mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
       - mongo_audit_logs:/var/log/mongodb
+
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
+
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
+
     logging:
       driver: "json-file"
       options:
@@ -122,10 +98,7 @@ services:
         max-file: "3"
 
   # ============================================================================
-  # [LAYER 4 | API] REST Backend — Node.js
-  # Endpoints: GET /utenti | /risorse | /dispositivi | /all
-  # Envoy routes here after OPA authorization.
-  # profile: core — rebuild only if server.js or package.json changes.
+  # LAYER 4: API BACKEND - MongoDB Data Access
   # ============================================================================
   # Questo backend espone endpoint HTTP tipo:
   # GET /utenti
@@ -140,14 +113,14 @@ services:
     build:
       context: ./services/api_backend
       dockerfile: Dockerfile
-      cache_from: [api_backend:cache]
     container_name: api_backend
     hostname: api_backend
     restart: unless-stopped
-    profiles: [core]
+
     networks:
       backend_net:
         ipv4_address: 172.20.3.20
+
     environment:
       - PORT=3000
       - MONGO_HOST=db_primary
@@ -155,36 +128,53 @@ services:
       - MONGO_DATABASE=${MONGO_DATABASE}
       - MONGO_ROOT_USER=${MONGO_ROOT_USER}
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+
     depends_on:
       db_primary:
         condition: service_healthy
+
     logging:
+
+
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
   # ============================================================================
-  # [LAYER 3 | DECISION] Policy Decision Point — OPA
-  # REST :8181 for management | gRPC :9191 for Envoy ext_authz.
-  # .rego files volume-mounted — OPA hot-reloads on file change, no restart.
-  # profile: core — start once, never rebuild.
+  # LAYER 3: DECISION - OPA Policy Engine
   # ============================================================================
+
   pdp_engine:
     image: openpolicyagent/opa:latest-envoy
     container_name: pdp_engine
     hostname: opa-policy
     restart: unless-stopped
     working_dir: /usr/share/opa-app
-    profiles: [core]
+
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.6
+
       monitoring_net:
         ipv4_address: 172.20.4.6
+
+      corporate_net:
+        ipv4_address: 172.20.10.6
+
+      vpn_net:
+        ipv4_address: 172.20.11.6
+
+      satellite_net:
+        ipv4_address: 172.20.12.6
+
+      public_net:
+        ipv4_address: 172.20.13.6
+
     ports:
-      - "8181:8181"   # REST — policy management and inspection
-      - "9191:9191"   # gRPC — Envoy ext_authz
+      - "8181:8181"     # Porta REST (per management/ispezione)
+      - "9191:9191"     # Porta gRPC (per Envoy)
+
     volumes:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
       - ./configs/opa/policies/test-policy.rego:/policies/test-policy.rego:ro
@@ -192,11 +182,15 @@ services:
       - ./configs/opa/data/devices.json:/policies/devices.json:ro
       - ./configs/opa/data/networks.json:/policies/networks.json:ro
       - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
+      #risk_score
+      - opa_risk_data:/policies/risk_data
+
     environment:
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - MONGODB_HOST=db_primary
       - MONGODB_PORT=27017
+
     command:
       - "run"
       - "--server"
@@ -214,54 +208,61 @@ services:
     #  retries: 5
     #  start_period: 15s
 
-#    depends_on:
-#      siem_central:
-#        condition: service_started
+    depends_on:
+      siem_central:
+        condition: service_started
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
+
   # ============================================================================
-  # [LAYER 2 | ENFORCEMENT] Policy Enforcement Point — Envoy
-  # mTLS termination + ext_authz to OPA + routing to api_backend.
-  # envoy.yaml and lua scripts volume-mounted — edit without rebuild.
-  # Certs volume-mounted — rotate without rebuild (restart only).
-  # Admin API bound to 127.0.0.1 only — security hardening.
-  # profile: security — restarts independently from core.
+  # LAYER 2: ENFORCEMENT - Envoy Proxy PEP
   # ============================================================================
+
   pep_gateway:
     build:
       context: ./services/envoy
       dockerfile: Dockerfile
-      cache_from: [pep_gateway:cache]
     container_name: pep_gateway
     hostname: envoy-gateway
     restart: unless-stopped
-    profiles: [security]
+
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.7
+
       backend_net:
         ipv4_address: 172.20.3.7
-      corporate_net: # soc_admin
+      #clients_net:
+      #  ipv4_address: 172.20.5.7
+
+      corporate_net:       # soc_admin
         ipv4_address: 172.20.10.7
-      vpn_net: # operatore_ancona
+
+      vpn_net:              # operatore_ancona
         ipv4_address: 172.20.11.7
-      satellite_net: # capitano
+
+      satellite_net:       # capitano
         ipv4_address: 172.20.12.7
-      public_net: # intruso
+
+      public_net:          # intruso
         ipv4_address: 172.20.13.7
+
     ports:
-      - "8443:8443"             # mTLS ingress — client entry point
-      - "127.0.0.1:9901:9901"   # Envoy admin — localhost only
+      - "8443:8443"
+      - "127.0.0.1:9901:9901"
+
     volumes:
       - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
       - ./configs/envoy/mongo_inspector.lua:/etc/envoy/mongo_inspector.lua:ro
       - ./certs/server:/certs:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - envoy_logs:/var/log/envoy
+
     environment:
       - OPA_HOST=pdp_engine
       - OPA_PORT=9191
@@ -269,12 +270,15 @@ services:
       - API_BACKEND_PORT=3000
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
-#    depends_on:
-#      pdp_engine:
-#        condition: service_started
-#      api_backend:
-#        condition: service_started
+
+    depends_on:
+      pdp_engine:
+        condition: service_started
+      api_backend:
+        condition: service_started
+
     logging:
       driver: "json-file"
       options:
@@ -282,46 +286,52 @@ services:
         max-file: "3"
 
   # ============================================================================
-  # [LAYER 1 | NETWORK] Perimeter Firewall — nftables
-  # Enforces network-level ACL between ZTA trust zones.
-  # rules.nft volume-mounted — edit firewall rules without rebuild.
-  # NET_ADMIN required for kernel netfilter access.
-  # profile: security — restarts independently from core.
+  # LAYER 1: NETWORK SECURITY - NFTables Firewall
   # ============================================================================
+
   firewall_perimeter:
     build:
       context: ./services/nftables
       dockerfile: Dockerfile
-      cache_from: [firewall_perimeter:cache]
     container_name: firewall_perimeter
     hostname: nft-firewall
     restart: unless-stopped
-    profiles: [security]
+
     networks:
+      #clients_net:
+      #  ipv4_address: 172.20.5.10
       zerotrust_net:
         ipv4_address: 172.20.2.10
       backend_net:
         ipv4_address: 172.20.3.10
       monitoring_net:
         ipv4_address: 172.20.4.10
-      corporate_net: # soc_admin
+
+      corporate_net:       # soc_admin
         ipv4_address: 172.20.10.10
-      vpn_net: # operatore_ancona
+
+      vpn_net:              # operatore_ancona
         ipv4_address: 172.20.11.10
-      satellite_net: # capitano
+
+      satellite_net:       # capitano
         ipv4_address: 172.20.12.10
-      public_net: # intruso
+
+      public_net:          # intruso
         ipv4_address: 172.20.13.10
+
     cap_add:
       - NET_ADMIN
+
     volumes:
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
       - nftables_logs:/var/log/nftables
+
     environment:
       - ENVOY_IP=172.20.2.7
       - MONGODB_IP=172.20.3.5
       - SPLUNK_IP=172.20.4.8
       - OPA_IP=172.20.2.6
+
     logging:
       driver: "json-file"
       options:
@@ -329,22 +339,17 @@ services:
         max-file: "3"
 
   # ============================================================================
-  # [LAYER 1 | NETWORK] Intrusion Detection System — Snort 3
-  # Passive monitor across all ZTA trust zones.
-  # FIX: context was "." (sent entire project to daemon) → now ./services/snort
-  # Rules and config volume-mounted — edit without rebuild.
-  # privileged + NET_RAW required for packet capture.
-  # profile: security — restarts independently from core.
+  # LAYER 1: NETWORK SECURITY - Snort IDS
   # ============================================================================
+
   ids_network_monitor:
     build:
-      context: ./services/snort        # FIX: was "." — only sends snort dir now
+      context: ./services/snort
       dockerfile: Dockerfile
-      cache_from: [ids_network_monitor:cache]
     container_name: ids_network_monitor
     hostname: snort-ids
     restart: unless-stopped
-    profiles: [security]
+
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.11
@@ -360,35 +365,37 @@ services:
         ipv4_address: 172.20.12.11
       public_net:
         ipv4_address: 172.20.13.11
+
     privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW
     security_opt:
       - apparmor:unconfined
+
     volumes:
       - ./configs/snort/snort.lua:/etc/snort/snort.lua:ro
       - ./configs/snort/rules:/etc/snort/rules:ro
       - snort_logs:/var/log/snort
+
     environment:
       - IDS_MODE=portable
       - INTERFACE=eth0
       - HOME_NET=172.20.0.0/16
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-#    depends_on:
-#      siem_central:
-#        condition: service_started
+
+    depends_on:
+      siem_central:
+        condition: service_started
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
   # ============================================================================
-  # [TESTING | TRUST ZONE: VPN] Client — operatore_ancona
-  # Medium trust — role: ruolo_banchina — expects access to /risorse /dispositivi
-  # profile: testing
+  # TESTING CLIENTS
   # ============================================================================
   # Client coerenti con gli utenti MongoDB:
   # - operatore_ancona
@@ -405,46 +412,51 @@ services:
       args:
         CLIENT_TYPE: operatore_ancona
         CLIENT_ROLE: ruolo_banchina
-      cache_from: [clients:cache]
     container_name: client_operatore_ancona
     hostname: client-operatore-ancona
     restart: "no"
-    profiles: [testing]
+
     networks:
       vpn_net:
         ipv4_address: 172.20.11.20
+
     volumes:
-      - ./certs/devices/D-001:/certs/device:ro             # certificato device
+      - ./certs/devices/D-001:/certs/device:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
+
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
+
       # Dati descrittivi del client simulato
       - CLIENT_NAME=operatore_ancona
       - CLIENT_ROLE=ruolo_banchina
+
       # IMPORTANTE: ora il certificato mTLS è quello del dispositivo
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+
       # Identità applicativa dell’utente che sta usando il dispositivo
       - USER_ID=operatore_ancona
+
       # CA usata per verificare il certificato server di Envoy
       - CA_CERT=/ca/ca.crt
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
 
-  # ============================================================================
-  # [TESTING | TRUST ZONE: SATELLITE] Client — capitano_claudia
-  # Medium trust — role: ruolo_equipaggio — expects access to /utenti /dispositivi
-  # profile: testing
-  # ============================================================================
   client_capitano_claudia:
     build:
       context: ./services/clients
@@ -452,47 +464,53 @@ services:
       args:
         CLIENT_TYPE: capitano_claudia
         CLIENT_ROLE: ruolo_equipaggio
-      cache_from: [clients:cache]
     container_name: client_capitano_claudia
     hostname: client-capitano-claudia
     restart: "no"
-    profiles: [testing]
+
     networks:
       satellite_net:
         ipv4_address: 172.20.12.21
+
     volumes:
       # Certificato del dispositivo usato per la connessione mTLS verso Envoy
       - ./certs/devices/D-002:/certs/device:ro
+
       # CA usata per verificare Envoy
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
+
       # Script di test del client
       - ./services/clients/scripts:/scripts:ro
+
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
       - CLIENT_NAME=capitano_claudia
       - CLIENT_ROLE=ruolo_equipaggio
+
       # mTLS = certificato dispositivo
       - CLIENT_CERT=/certs/device/device.crt
       - CLIENT_KEY=/certs/device/device.key
+
       # utente applicativo
       - USER_ID=capitano_claudia
+
       - CA_CERT=/ca/ca.crt
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
 
-  # ============================================================================
-  # [TESTING | TRUST ZONE: CORPORATE] Client — soc_admin
-  # High trust — role: ruolo_gestione_flotta — expects full access to /all
-  # profile: testing
-  # ============================================================================
   client_soc_admin:
     build:
       context: ./services/clients
@@ -500,45 +518,48 @@ services:
       args:
         CLIENT_TYPE: soc_admin
         CLIENT_ROLE: ruolo_gestione_flotta
-      cache_from: [clients:cache]
     container_name: client_soc_admin
     hostname: client-soc-admin
     restart: "no"
-    profiles: [testing]
+
     networks:
       corporate_net:
         ipv4_address: 172.20.10.20
+
     volumes:
       - ./certs/devices/D-SOC:/certs/device:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
+
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
       - CLIENT_NAME=soc_admin
       - CLIENT_ROLE=ruolo_gestione_flotta
+
       # mTLS = certificato dispositivo
       - CLIENT_CERT=/certs/device/device.crt
       - CLIENT_KEY=/certs/device/device.key
+
       # utente applicativo
       - USER_ID=soc_admin
-      - CA_CERT=/ca/ca.cr
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
+
+      - CA_CERT=/ca/ca.crt
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
 
-  # ============================================================================
-  # [TESTING | TRUST ZONE: PUBLIC] Client — intruso (negative test)
-  # Zero trust — role: ruolo_non_autorizzato — ALL requests MUST be denied.
-  # No device cert — tests mTLS enforcement at Envoy layer.
-  # profile: testing
-  # ============================================================================
   client_intruso:
     build:
       context: ./services/clients
@@ -546,30 +567,37 @@ services:
       args:
         CLIENT_TYPE: intruso
         CLIENT_ROLE: ruolo_non_autorizzato
-      cache_from: [clients:cache]
     container_name: client_intruso
     hostname: client-intruso
     restart: "no"
-    profiles: [testing]
+
     networks:
       public_net:
-        ipv4_address: 172.20.13.99
+        ipv4_address: 172.20.13.21
+
     volumes:
-      - ./certs/clients/intruso:/certs:ro
+      - ./certs/devices/D-001:/certs/device:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - ./services/clients/scripts:/scripts:ro
+
     environment:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
       - CLIENT_NAME=intruso
       - CLIENT_ROLE=ruolo_non_autorizzato
-      - CLIENT_CERT=/certs/client.crt
-      - CLIENT_KEY=/certs/client.key
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      - USER_ID=intruso
       - CA_CERT=/ca/ca.crt
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
     logging:
       driver: "json-file"
       options:
@@ -578,14 +606,6 @@ services:
 
 # ==============================================================================
 # NETWORKS
-# ──────────────────────────────────────────────────────────────────────────────
-# corporate_net  172.20.10.0/24 — high trust    : soc_admin
-# vpn_net        172.20.11.0/24 — medium trust  : operatore_ancona
-# satellite_net  172.20.12.0/24 — medium trust  : capitano_claudia
-# public_net     172.20.13.0/24 — zero trust    : intruso
-# zerotrust_net  172.20.2.0/24  — ZTA backbone  : Envoy, OPA, Snort, Splunk
-# backend_net    172.20.3.0/24  — internal only : MongoDB, api_backend (internal: true)
-# monitoring_net 172.20.4.0/24  — observability : Splunk, OPA, Snort
 # ==============================================================================
 
 networks:
@@ -621,7 +641,7 @@ networks:
       config:
         - subnet: 172.20.13.0/24
 
-   # reti
+    # reti
 
   #clients_net:
   #  driver: bridge
@@ -652,11 +672,10 @@ networks:
       config:
         - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
 
+
+
 # ==============================================================================
 # VOLUMES
-# ──────────────────────────────────────────────────────────────────────────────
-# Audit volumes (mongo_audit_logs, snort_logs, envoy_logs, nftables_logs)
-# survive restarts and profile switches — Splunk maintains continuous audit trail.
 # ==============================================================================
 
 volumes:
@@ -690,4 +709,8 @@ volumes:
 
   snort_logs:
     name: maritime-zta_snort_logs
+    driver: local
+
+  opa_risk_data:
+    name: maritime-zta_opa_risk_data
     driver: local

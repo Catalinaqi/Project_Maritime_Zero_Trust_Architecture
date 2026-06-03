@@ -13,7 +13,8 @@ services:
 decision_logs:
   console: true
   service: splunk_hec
-  resource: /services/collector/raw
+  # Invio raw, ma istruendo Splunk su come interpretarli
+  resource: /services/collector/raw?sourcetype=opa_decision&index=main
   reporting:
     min_delay_seconds: 5
     max_delay_seconds: 10
