@@ -338,8 +338,8 @@ services:
 
   ids_network_monitor:
     build:
-      context: .
-      dockerfile: services/snort/Dockerfile
+      context: ./services/snort
+      dockerfile: Dockerfile
     container_name: ids_network_monitor
     hostname: snort-ids
     restart: unless-stopped
@@ -561,17 +561,23 @@ services:
       args:
         CLIENT_TYPE: intruso
         CLIENT_ROLE: ruolo_non_autorizzato
+
     container_name: client_intruso
     hostname: client-intruso
     restart: "no"
 
     networks:
       public_net:
-        ipv4_address: 172.20.13.99
+        ipv4_address: 172.20.13.21
 
     volumes:
+      # Certificato dispositivo usato per mTLS verso Envoy
       - ./certs/devices/D-001:/certs/device:ro
+
+      # CA usata per verificare Envoy
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
+
+      # Script di test
       - ./services/clients/scripts:/scripts:ro
 
     environment:
@@ -580,9 +586,14 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=intruso
       - CLIENT_ROLE=ruolo_non_autorizzato
+
+      # mTLS = certificato dispositivo
       - CLIENT_CERT=/certs/device/device.crt
       - CLIENT_KEY=/certs/device/device.key
+
+      # utente applicativo
       - USER_ID=intruso
+
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -591,12 +602,6 @@ services:
 
     profiles:
       - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
 
 # ==============================================================================
 # NETWORKS

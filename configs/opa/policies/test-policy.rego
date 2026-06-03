@@ -138,8 +138,21 @@ time_allowed(profile) if {
     profile.time_window_end
 }
 
-# Se il risk_score non viene passato, lo consideriamo 0.
-risk_score := object.get(request_metadata, "risk_score", 0)
+# Recupera il risk score dai metadati Lua.
+# Se non viene passato, il valore predefinito è 0.
+raw_risk_score := object.get(request_metadata, "risk_score", 0)
+
+# Caso 1: il risk score arriva già come numero.
+risk_score := score if {
+    is_number(raw_risk_score)
+    score := raw_risk_score
+}
+
+# Caso 2: il risk score arriva come stringa, ad esempio "30".
+risk_score := score if {
+    is_string(raw_risk_score)
+    score := to_number(raw_risk_score)
+}
 
 # Controlla che il rischio sia sotto la soglia massima dell'utente.
 risk_allowed(profile) if {
