@@ -14,7 +14,7 @@
 ### **Project Structure**
 ```
 ✅ ALL IN ENGLISH
-✅ NO "Adria Ferries" exposed externally
+✅ NO "Marina Line" exposed externally
 ✅ Generic naming (maritime-zta)
 ✅ Security-first design
 ✅ Enterprise-grade quality
@@ -75,7 +75,7 @@
 
 | Old Name (Exposed Business) | New Name (Generic) |
 |------------------------------|-------------------|
-| `adriaferries_*` | `maritime-zta_*` |
+| `marinaLine_*` | `maritime-zta_*` |
 | `net_firewall_af_perimeter_ancona_nftables` | `firewall_perimeter` |
 | `net_ids_af_traffic_monitor_ancona_snort` | `ids_network_monitor` |
 | `zt_pep_af_api_gateway_ancona_envoy` | `pep_gateway` |
@@ -129,13 +129,13 @@
 ## 🔒 **Security Hardening**
 
 ### **FIXED: Information Exposure**
-- ❌ OLD: `adriaferries_zerotrust` network name
+- ❌ OLD: `marinaLine_zerotrust` network name
 - ✅ NEW: `maritime-zta_zerotrust` (generic)
 
 - ❌ OLD: `af_ops_ancona` username
 - ✅ NEW: `ops_user` (no location)
 
-- ❌ OLD: Hardcoded `Adria2026!` password
+- ❌ OLD: Hardcoded `marinaLine2026!` password
 - ✅ NEW: `CHANGE_ME_STRONG_PASSWORD_HERE` in .env.example
 
 ### **FIXED: Language Consistency**
