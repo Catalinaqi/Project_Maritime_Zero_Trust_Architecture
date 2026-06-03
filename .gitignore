@@ -20,7 +20,10 @@ secrets/
 *.secret
 *.token
 
-certs/
+# Ignore all contents of the certs folder
+certs/*
+# But DO NOT ignore the README file in that folder
+!certs/CONFIG_CERTS.md
 
 # ====================
 
@@ -137,4 +140,9 @@ backups/
 test-results/
 test-reports/
 *.test.log
+
+
+
+# POETRY
+poetry.lock
 
