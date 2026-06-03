@@ -3,3 +3,7 @@
 *.yaml text eol=lf
 *.rego text eol=lf
 *.json text eol=lf
+
+
+*.nft text eol=lf
+*.lua text eol=lf

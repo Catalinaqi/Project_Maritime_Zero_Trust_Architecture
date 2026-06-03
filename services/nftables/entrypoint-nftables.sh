@@ -225,8 +225,8 @@ display_rules() {
 main() {
     echo ""
     echo "╔═══════════════════════════════════════════════╗"
-    echo "║     🔥 NFTABLES FIREWALL - ZERO TRUST        ║"
-    echo "║     Maritime Security           ║"
+    echo "║     🔥 NFTABLES FIREWALL - ZERO TRUST         ║"
+    echo "║     Maritime Security                         ║"
     echo "║     Layer 1 - Network Guardian                ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo ""

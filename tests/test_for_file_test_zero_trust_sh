@@ -1,0 +1,665 @@
+$ ./scripts/test_zero_trust.sh
+============================================================
+ TEST ZERO TRUST - Maritime ZTA
+============================================================
+
+============================================================
+ 1. TEST mTLS
+============================================================
+
+------------------------------------------------------------
+Test #1: mTLS valido - Claudia usa dispositivo D-002
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #2: mTLS assente - richiesta senza certificato dispositivo
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     no
+Risk:     -
+Atteso:   000
+
+Ottenuto: 000
+ESITO: TEST OK
+
+============================================================
+ 2. TEST COMBINAZIONI AUTORIZZATE
+============================================================
+
+------------------------------------------------------------
+Test #3: ALLOW - operatore_ancona + D-001 + vpn_net su /risorse
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #4: ALLOW - capitano_claudia + D-002 + satellite_net su /risorse
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #5: ALLOW - soc_admin + D-SOC + corporate_net su /all
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+============================================================
+ 3. TEST COMBINAZIONI NON AUTORIZZATE
+============================================================
+
+------------------------------------------------------------
+Test #6: DENY - intruso + D-001 + public_net su /risorse
+Client:   client_intruso
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 000
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #7: DENY - device D-002 valido ma utente intruso
+Client:   client_capitano_claudia
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #8: DENY - device D-001 valido ma utente intruso su vpn_net
+Client:   client_operatore_ancona
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #9: DENY - utente inesistente su device valido
+Client:   client_capitano_claudia
+User:     utente_inesistente
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+============================================================
+ 4. TEST RISORSE
+============================================================
+
+------------------------------------------------------------
+Test #10: ALLOW - Claudia accede a /risorse
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #11: ALLOW - Claudia accede a /dispositivi
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /dispositivi
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #12: DENY - Claudia prova ad accedere a /all
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #13: ALLOW - SOC admin accede a /all
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #14: DENY - operatore_ancona prova ad accedere a /all
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #15: DENY - intruso prova ad accedere a /all
+Client:   client_intruso
+User:     intruso
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 000
+ESITO: TEST FALLITO
+
+============================================================
+ 5. TEST METODI HTTP / COMANDI LOGICI
+============================================================
+
+------------------------------------------------------------
+Test #16: ALLOW - operatore_ancona GET /risorse = find
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #17: DENY - operatore_ancona POST /risorse = insert non consentito
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   POST
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #18: DENY - operatore_ancona PUT /risorse = update non consentito
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   PUT
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #19: DENY - operatore_ancona DELETE /risorse = delete non consentito
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   DELETE
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #20: ALLOW - capitano_claudia GET /risorse = find
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #21: ALLOW - capitano_claudia POST /risorse = insert
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   POST
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 404
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #22: ALLOW - capitano_claudia PUT /risorse = update
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   PUT
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 404
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #23: DENY - capitano_claudia DELETE /risorse = delete non consentito
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   DELETE
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #24: ALLOW - soc_admin GET /all
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #25: ALLOW - soc_admin POST /all
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   POST
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 404
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #26: ALLOW - soc_admin PUT /all
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   PUT
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 404
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #27: ALLOW - soc_admin DELETE /all
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   DELETE
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 404
+ESITO: TEST FALLITO
+
+============================================================
+ 6. TEST RISK SCORE DINAMICO
+============================================================
+
+------------------------------------------------------------
+Test #28: ALLOW - Claudia con risk score basso 30 <= max 70
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     30
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #29: DENY - Claudia con risk score alto 90 > max 70
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     90
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #30: ALLOW - operatore_ancona con risk score basso 30 <= max 50
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     30
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #31: DENY - operatore_ancona con risk score alto 80 > max 50
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     80
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #32: ALLOW - soc_admin con risk score 90 <= max 100
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     90
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+============================================================
+ 7. TEST UTENTI SU DEVICE/RETI DISPONIBILI
+============================================================
+
+------------------------------------------------------------
+Test #33: D-002 + satellite_net usato da capitano_claudia
+Client:   client_capitano_claudia
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #34: D-002 + satellite_net usato da operatore_ancona
+Client:   client_capitano_claudia
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #35: D-002 + satellite_net usato da soc_admin
+Client:   client_capitano_claudia
+User:     soc_admin
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #36: D-002 + satellite_net usato da intruso
+Client:   client_capitano_claudia
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #37: D-001 + vpn_net usato da operatore_ancona
+Client:   client_operatore_ancona
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #38: D-001 + vpn_net usato da capitano_claudia
+Client:   client_operatore_ancona
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #39: D-001 + vpn_net usato da soc_admin
+Client:   client_operatore_ancona
+User:     soc_admin
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #40: D-001 + vpn_net usato da intruso
+Client:   client_operatore_ancona
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #41: D-SOC + corporate_net usato da soc_admin
+Client:   client_soc_admin
+User:     soc_admin
+Metodo:   GET
+Endpoint: /all
+Cert:     yes
+Risk:     -
+Atteso:   200
+
+Ottenuto: 200
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #42: D-SOC + corporate_net usato da capitano_claudia
+Client:   client_soc_admin
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #43: D-SOC + corporate_net usato da operatore_ancona
+Client:   client_soc_admin
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #44: D-SOC + corporate_net usato da intruso
+Client:   client_soc_admin
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 403
+ESITO: TEST OK
+
+------------------------------------------------------------
+Test #45: D-001 + public_net usato da intruso
+Client:   client_intruso
+User:     intruso
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 000
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #46: D-001 + public_net usato da operatore_ancona
+Client:   client_intruso
+User:     operatore_ancona
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 000
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #47: D-001 + public_net usato da capitano_claudia
+Client:   client_intruso
+User:     capitano_claudia
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 000
+ESITO: TEST FALLITO
+
+------------------------------------------------------------
+Test #48: D-001 + public_net usato da soc_admin
+Client:   client_intruso
+User:     soc_admin
+Metodo:   GET
+Endpoint: /risorse
+Cert:     yes
+Risk:     -
+Atteso:   403
+
+Ottenuto: 000
+ESITO: TEST FALLITO
+
+============================================================
+ RIEPILOGO TEST ZERO TRUST
+============================================================
+Totale test: 48
+Test OK:     37
+Test falliti:11
+============================================================
+ESITO FINALE: ALCUNI TEST SONO FALLITI

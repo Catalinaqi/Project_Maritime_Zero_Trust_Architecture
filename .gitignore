@@ -20,6 +20,8 @@ secrets/
 *.secret
 *.token
 
+certs/
+
 # ====================
 
 # DOCKER / RUNTIME DATA
