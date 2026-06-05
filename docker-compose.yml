@@ -30,9 +30,9 @@ services:
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
       - mongo_audit_logs:/var/log/mongodb
-      #risk_score
+      #risk_score e file .json
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
-      - opa_risk_data:/opa_data
+      - ./configs/opa/data/risk_data:/opa_data
 
     environment:
       - SPLUNK_START_ARGS=--accept-license
@@ -203,8 +203,7 @@ services:
       - ./configs/opa/data/devices.json:/policies/devices.json:ro
       - ./configs/opa/data/networks.json:/policies/networks.json:ro
       - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
-      #risk_score
-      - opa_risk_data:/policies/risk_data
+      - ./configs/opa/data/risk_data:/policies/risk_data
 
     environment:
       - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
@@ -732,6 +731,3 @@ volumes:
     name: maritime-zta_snort_logs
     driver: local
 
-  opa_risk_data:
-    name: maritime-zta_opa_risk_data
-    driver: local

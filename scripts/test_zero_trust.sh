@@ -39,6 +39,18 @@ run_test() {
   echo "Atteso:   $EXPECTED"
   echo ""
 
+  # 1. INIEZIONE DINAMICA DEL RISCHIO IN OPA (Simulazione Updater Splunk)
+  if [ "$RISK_SCORE" != "-" ]; then
+    # Invia il JSON direttamente al database interno di OPA tramite le sue API REST (porta 8181 di default)
+    curl -s -X PUT http://localhost:8181/v1/data/risk_data/risk_scores/$USER_ID \
+      -H "Content-Type: application/json" \
+      -d "{\"risk_score\": $RISK_SCORE}" > /dev/null
+
+    # Piccola pausa per dare a OPA il tempo di aggiornare la memoria
+    sleep 1
+  fi
+
+  # 2. PREPARAZIONE DELLA CHIAMATA AL PROXY ENVOY
   CURL_ARGS=(
     curl -sk
     -X "$METHOD"
@@ -52,9 +64,12 @@ run_test() {
     CURL_ARGS+=(--cert /certs/device/device.crt --key /certs/device/device.key)
   fi
 
-  if [ "$RISK_SCORE" != "-" ]; then
-    CURL_ARGS+=(-H "X-Risk-Score: $RISK_SCORE")
-  fi
+  # RIMOSSO: Il blocco if che aggiungeva l'header X-Risk-Score è stato eliminato
+
+  #commentato poichè proviamo ad aggiungere dinamicamente il rischio
+  #if [ "$RISK_SCORE" != "-" ]; then
+  #  CURL_ARGS+=(-H "X-Risk-Score: $RISK_SCORE")
+  #fi
 
   CURL_ARGS+=("https://pep_gateway:8443$ENDPOINT")
 
