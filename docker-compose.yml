@@ -74,10 +74,12 @@ services:
     volumes:
       - mongo_data:/data/db
       - mongo_config:/data/configdb
-      - ./certs/server:/certs:ro
+      - ./certs/mongodb:/certs/mongodb:ro
       - ./configs/mongodb/mongod.conf:/etc/mongod.conf:ro
       - ./configs/mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
       - mongo_audit_logs:/var/log/mongodb
+
+    command: ["mongod", "--config", "/etc/mongod.conf"]
 
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
@@ -85,7 +87,24 @@ services:
       - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
 
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--host",
+          "db_primary",
+          "--tls",
+          "--tlsCAFile",
+          "/certs/mongodb/ca.crt",
+          "--username",
+          "${MONGO_ROOT_USER}",
+          "--password",
+          "${MONGO_ROOT_PASSWORD}",
+          "--authenticationDatabase",
+          "admin",
+          "--eval",
+          "db.adminCommand('ping')"
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -120,15 +139,17 @@ services:
     networks:
       backend_net:
         ipv4_address: 172.20.3.20
+    volumes:
+      - ./certs/mongodb/ca.crt:/certs/mongodb/ca.crt:ro
 
     environment:
       - PORT=3000
-      - MONGO_HOST=db_primary
-      - MONGO_PORT=27017
+      - MONGO_HOST=${MONGO_HOST}
+      - MONGO_PORT=${MONGO_PORT}
       - MONGO_DATABASE=${MONGO_DATABASE}
       - MONGO_ROOT_USER=${MONGO_ROOT_USER}
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-
+      - MONGO_TLS_CA_FILE=${MONGO_TLS_CA_FILE}
     depends_on:
       db_primary:
         condition: service_healthy

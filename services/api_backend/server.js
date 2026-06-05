@@ -11,9 +11,9 @@ const MONGO_PORT = process.env.MONGO_PORT || "27017";
 const MONGO_DATABASE = process.env.MONGO_DATABASE || "maritime_zta";
 const MONGO_ROOT_USER = process.env.MONGO_ROOT_USER || "admin";
 const MONGO_ROOT_PASSWORD = process.env.MONGO_ROOT_PASSWORD || "admin_password";
+const MONGO_TLS_CA_FILE = process.env.MONGO_TLS_CA_FILE || "/certs/mongodb/ca.crt";
 
-const mongoUri = `mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin`;
-
+const mongoUri = `mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin&tls=true&tlsCAFile=${MONGO_TLS_CA_FILE}`;
 let db;
 
 async function connectMongo() {
