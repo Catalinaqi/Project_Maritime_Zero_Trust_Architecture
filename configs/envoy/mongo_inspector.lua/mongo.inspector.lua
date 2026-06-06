@@ -1,11 +1,15 @@
 function envoy_on_request(request_handle)
-    local path = request_handle:headers():get(":path")
-    local method = request_handle:headers():get(":method")
+    -- Recupera il path della richiesta, ad esempio "/risorse".
+    local path = request_handle:headers():get(":path") or "unknown"
 
-    -- Estrae la collection dall'URL: /risorse → "risorse"
-    local collection = string.match(path, "^/([^/]+)")
+    -- Recupera il metodo HTTP, ad esempio GET, POST, PUT o DELETE.
+    local method = request_handle:headers():get(":method") or "unknown"
 
-    -- Mappa HTTP method → comando MongoDB
+    -- Estrae la risorsa richiesta dal path.
+    -- Esempio: "/risorse" diventa "risorse".
+    local collection = string.match(path, "^/([^/]+)") or "unknown"
+
+    -- Mappa il metodo HTTP in un comando logico usato da OPA.
     local command_map = {
         GET = "find",
         POST = "insert",
@@ -13,37 +17,24 @@ function envoy_on_request(request_handle)
         DELETE = "delete"
     }
 
+    -- Se il metodo non è riconosciuto, usa "unknown".
     local command = command_map[method] or "unknown"
 
-    if device_cert_b64 then
-        -- Decodifica e cerca il CN del device nel certificato base64
-        -- In Lua non possiamo fare crypto, estraiamo il CN come stringa
-        local decoded = request_handle:httpCall(
-            "local_decoder",
-            {
-                [":method"] = "POST",
-                [":path"] = "/decode-cert",
-                [":authority"] = "localhost"
-            },
-            device_cert_b64,
-            1000
-        )
-        -- Alternativa più semplice: cerca il pattern CN= nel base64 decodificato
-        device_cn = string.match(device_cert_b64, "CN=([^,/]+)") or "unknown"
-        device_verified = device_cn ~= "unknown"
-    end
+    -- Recupera l'utente applicativo.
+    -- Il certificato mTLS identifica il dispositivo, mentre X-User-Id identifica l'utente.
+    local user_id = request_handle:headers():get("x-user-id") or "unknown"
 
-    -- Scrive tutti i metadati per OPA
-
+    -- Salva solo i metadati necessari a OPA.
+    -- Il risk score NON viene letto dagli header HTTP:
+    -- viene recuperato da OPA dai dati aggiornati da Splunk.
     request_handle:streamInfo():dynamicMetadata():set(
         "envoy.filters.http.lua",
         "context_extensions",
         {
             command = command,
-            collection = collection or "unknown",
-            path = path
-            device_cn      = device_cn,
-            device_present = device_verified
+            collection = collection,
+            path = path,
+            user_id = user_id
         }
     )
 end

@@ -143,6 +143,7 @@ services:
       - ./certs/mongodb/ca.crt:/certs/mongodb/ca.crt:ro
 
     environment:
+      
       - PORT=3000
       - MONGO_HOST=${MONGO_HOST}
       - MONGO_PORT=${MONGO_PORT}
@@ -408,6 +409,17 @@ services:
     depends_on:
       siem_central:
         condition: service_started
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /etc/snort/snort.lua && test -f /etc/snort/rules/zta.rules && test -d /var/log/snort"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
     logging:
       driver: "json-file"
