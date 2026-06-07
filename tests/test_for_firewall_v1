@@ -1,0 +1,76 @@
+#step 1
+$ chmod +x configs/nftables/test_firewall_v1.sh
+
+#step 2
+$ ./configs/nftables/test_firewall_v1.sh
+
+
+======================================================
+  Inizio Test di Sicurezza NFTables (Zero Trust)
+======================================================
+
+[1] Avvio dei client di test...
+time="2026-06-07T20:39:37+02:00" level=warning msg="The \"MONGO_TLS_CA_FILE\" variable is not set. Defaulting to a blank string."
+[+] Building 48.1s (14/14) FINISHED                                                                                                                                                                                                          docker:desktop-linux
+ => [client_operatore_ancona internal] load build definition from Dockerfile                                                                                                                                                                                 0.2s
+ => => transferring dockerfile: 693B                                                                                                                                                                                                                         0.0s
+ => [client_intruso internal] load build definition from Dockerfile                                                                                                                                                                                          0.2s
+ => => transferring dockerfile: 693B                                                                                                                                                                                                                         0.0s
+ => [client_operatore_ancona internal] load metadata for docker.io/library/alpine:3.19                                                                                                                                                                       1.2s
+ => [client_intruso internal] load .dockerignore                                                                                                                                                                                                             0.2s
+ => => transferring context: 2B                                                                                                                                                                                                                              0.0s
+ => [client_operatore_ancona internal] load .dockerignore                                                                                                                                                                                                    0.2s
+ => => transferring context: 2B                                                                                                                                                                                                                              0.0s
+ => CACHED [client_intruso 1/5] FROM docker.io/library/alpine:3.19@sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1                                                                                                                   0.1s
+ => => resolve docker.io/library/alpine:3.19@sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1                                                                                                                                         0.1s
+ => [client_operatore_ancona 2/5] RUN apk add --no-cache openssl jq bash ca-certificates wget curl gcompat                                                                                                                                                   3.2s
+ => [client_operatore_ancona 3/5] RUN wget https://downloads.mongodb.com/compass/mongosh-2.2.6-linux-x64.tgz &&     tar -zxvf mongosh-2.2.6-linux-x64.tgz &&     mv mongosh-2.2.6-linux-x64/bin/mongosh /usr/bin/mongosh &&     chmod +x /usr/bin/mongosh   18.2s
+ => [client_intruso 4/5] WORKDIR /workspace                                                                                                                                                                                                                  0.2s
+ => [client_operatore_ancona 5/5] RUN mkdir -p /certs /ca                                                                                                                                                                                                    0.6s
+ => [client_operatore_ancona] exporting to image                                                                                                                                                                                                            20.5s
+ => => exporting layers                                                                                                                                                                                                                                     14.5s
+ => => exporting manifest sha256:f3a5fe8a6e5312bb7730be3a0562eb0f30ebf8116e862ee2716c1cd35325ed91                                                                                                                                                            0.3s
+ => => exporting config sha256:889b8aca246d90728a24378b2f6dfc8a2afe31dab3214eaad9a924b600de8d61                                                                                                                                                              0.1s
+ => => exporting attestation manifest sha256:dd0015aa2850fb2f4ee8c69e960a98a5e3619ed5542dd263e64fdada59227193                                                                                                                                                0.2s
+ => => exporting manifest list sha256:3ac8dfe37dc100ad3b20d591cd5ff1f3bbcd8a6f6167de882606159437089076                                                                                                                                                       0.1s
+ => => naming to docker.io/library/maritime-zta-client_operatore_ancona:latest                                                                                                                                                                               0.0s
+ => => unpacking to docker.io/library/maritime-zta-client_operatore_ancona:latest                                                                                                                                                                            5.2s
+ => [client_intruso] exporting to image                                                                                                                                                                                                                     20.6s
+ => => exporting layers                                                                                                                                                                                                                                     14.5s
+ => => exporting manifest sha256:bae0e7dda4eeca391f9a9e9d159ee317ab2028cdde8d7d1ad2f7500431baa4f6                                                                                                                                                            0.3s
+ => => exporting config sha256:7f5499507d0c859d0878afd49e095d40ed6a4dd4f82dc76ddd583297c0cc5486                                                                                                                                                              0.1s
+ => => exporting attestation manifest sha256:64a98aece00cb72a92a7e9cabb90f4b760a43881195561db088cff22410aff9d                                                                                                                                                0.2s
+ => => exporting manifest list sha256:178b864e7218a9f510ce27576ecdda1fca9d1a35738b129199559094c2d4a4de                                                                                                                                                       0.1s
+ => => naming to docker.io/library/maritime-zta-client_intruso:latest                                                                                                                                                                                        0.0s
+ => => unpacking to docker.io/library/maritime-zta-client_intruso:latest                                                                                                                                                                                     5.2s
+ => [client_operatore_ancona] resolving provenance for metadata file                                                                                                                                                                                         0.0s
+ => [client_intruso] resolving provenance for metadata file                                                                                                                                                                                                  0.0s
+[+] Running 9/9
+ ✔ client_intruso                     Built                                                                                                                                                                                                                  0.0s
+ ✔ client_operatore_ancona            Built                                                                                                                                                                                                                  0.0s
+ ✔ Container siem_central             Running                                                                                                                                                                                                                0.0s
+ ✔ Container db_primary               Healthy                                                                                                                                                                                                                4.2s
+ ✔ Container api_backend              Running                                                                                                                                                                                                                0.0s
+ ✔ Container pdp_engine               Running                                                                                                                                                                                                                0.0s
+ ✔ Container pep_gateway              Running                                                                                                                                                                                                                0.0s
+ ✔ Container client_operatore_ancona  Started                                                                                                                                                                                                                5.0s
+ ✔ Container client_intruso           Started                                                                                                                                                                                                                5.0s
+
+[2] TEST: Connettività base (Ping ICMP) dall'Intruso al Firewall...
+👉 Risultato: FALLITO (Ping bloccato o container non raggiungibile).
+
+[3] TEST: Tentativo di accesso diretto a MongoDB dall'Intruso...
+Esecuzione attacco verso la porta 27017 (Timeout impostato a 2 secondi)...
+👉 Risultato: ALLARME (La connessione non è stata bloccata correttamente!). Codice: 1
+
+[4] TEST: Tentativo di accesso diretto a OPA Policy Engine dall'Intruso...
+👉 Risultato: ALLARME (La connessione verso OPA è passata!).
+
+[5] VERIFICA AUDIT: Estrazione dei log di blocco dal Kernel del Firewall...
+Cerchiamo le prove dell'attacco bloccato nei log di sistema:
+
+
+======================================================
+  Test Completato. La perimetrazione ZTA è sicura!
+======================================================
+

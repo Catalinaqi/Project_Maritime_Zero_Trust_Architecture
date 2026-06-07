@@ -1,185 +1,113 @@
 #!/usr/sbin/nft -f
 
 # ============================================
-# NFTables Firewall Rules - Maritime Zero Trust Architecture
+# Regole Firewall NFTables - Maritime Zero Trust Architecture
 # ============================================
-# Author: Network Guardian
-# Component: Layer 1 Network Security
-# Purpose: Packet filtering and MongoDB isolation
+# Autore: Network Guardian
+# Componente: Layer 1 Network Security
+# Scopo: Filtraggio dei pacchetti e isolamento di MongoDB
 # Data Creation: 2026-05-11
-# Last Updated: 2026-06-01
+# Last Updated: 2026-06-07
 # ============================================
-# Security Model:
-#   - Default DENY all traffic (fail secure)
-#   - Explicit ALLOW only to PEP (Envoy)
-#   - MongoDB accessible ONLY from Envoy (172.20.2.7)
-#   - All dropped packets logged to Splunk
-#   - Defense in depth: Layer 1 of 4
-# ============================================
-# Network Segmentation (Docker Bridge Networks):
-#   zerotrust_net:  172.20.2.0/24  (interface eth0)
-#   backend_net:   172.20.3.0/24  (interface eth1, internal)
-#   monitoring_net: 172.20.4.0/24 (interface eth2)
-#   clients_net:   172.20.5.0/24  (not directly connected)
-# ============================================
-# Service IP Addresses:
-#   172.20.2.8  - siem_central    (Splunk)  [zerotrust_net]
-#   172.20.3.5  - db_primary      (MongoDB) [backend_net - INTERNAL]
-#   172.20.2.6  - pdp_engine      (OPA)     [zerotrust_net]
-#   172.20.2.7  - pep_gateway     (Envoy)   [zerotrust_net]
-#   172.20.2.10 - firewall_perimeter (NFTables) [zerotrust_net]
-#   172.20.2.11 - ids_network_monitor (Snort) [zerotrust_net]
-# ============================================
-# Firewall Networks:
-#   - zerotrust_net:  172.20.2.10 (public-facing services)
-#   - backend_net:    172.20.3.10 (database backend)
-#   - monitoring_net: 172.20.4.10 (logging/monitoring)
+# Modello di Sicurezza:
+#   - Default DENY per tutto il traffico (fail secure)
+#   - Explicit ALLOW solo verso il PEP (Envoy)
+#   - MongoDB accessibile SOLO tramite API Backend
+#   - Tutti i pacchetti scartati vengono registrati su Splunk
 # ============================================
 
-# Flush all existing rulesets to ensure clean state
+# Svuota tutte le regole esistenti per garantire uno stato pulito
 flush ruleset
 
 # ============================================
-# TABLE: inet filter (IPv4 + IPv6)
+# TABELLA: inet filter (IPv4 + IPv6)
 # ============================================
-# Using 'inet' family to handle both IPv4 and IPv6 traffic
-# This ensures no protocol gaps in our security coverage
 table inet filter {
 
     # ============================================
-    # CHAIN: input
-    # Purpose: Filter traffic DESTINED to the firewall container itself
-    # Policy: drop - Default deny for inbound traffic
+    # CATENA: input
+    # Scopo: Filtrare il traffico DESTINATO al container del firewall stesso
+    # Policy: drop - Nega di default il traffico in entrata
     # ============================================
     chain input {
         type filter hook input priority 0; policy drop;
 
-        # CRITICAL: Allow loopback for local process communication
-        # Snort, system monitoring, and health checks need localhost
-iif lo accept
+        # CRITICO: Consenti il loopback per le comunicazioni dei processi locali
+        iif lo accept
 
-        # CRITICAL: Allow established/related connections to return
-        # Without this, responses to outbound queries would be blocked
+        # CRITICO: Consenti il ritorno delle connessioni stabilite (Stateful)
         ct state established,related accept
 
-        # Allow ICMP ping for network diagnostics
-        # Essential for troubleshooting connectivity issues
+        # Consenti il ping ICMP per la diagnostica di rete
         ip protocol icmp accept
         ip6 nexthdr ipv6-icmp accept
 
-        # WARNING: Log all other dropped input traffic
-        # Helps identify misconfigurations and probes targeting the firewall
+        # ATTENZIONE: Registra tutto il traffico in entrata bloccato
         log prefix "[NFTABLES-INPUT] DROP: " level warn drop
     }
 
     # ============================================
-    # CHAIN: forward
-    # Purpose: Filter traffic PASSING THROUGH the firewall between networks
-    # Policy: drop - Default deny implements Zero Trust principle
-    #          "Never trust, always verify"
+    # CATENA: forward
+    # Scopo: Filtrare il traffico CHE ATTRAVERSA il firewall tra le reti
+    # Policy: drop - Implementa il principio Zero Trust "Mai fidarsi, verificare sempre"
     # ============================================
     chain forward {
         type filter hook forward priority 0; policy drop;
 
         # ============================================
-        # RULE 1: Stateful connection tracking
+        # REGOLA 1: Tracciamento di stato delle connessioni (Stateful)
         # ============================================
-        # Allow return traffic for established connections
-        # Performance optimization: ~90% of traffic is established
         ct state established,related accept
 
         # ============================================
-        # RULE 2: Allow traffic to Envoy Proxy (PEP)
+        # REGOLA 2: Consenti il traffico verso Envoy Proxy (PEP)
         # ============================================
-        # Port 8443 is the public entry point for ALL services
-        # Envoy handles mTLS termination, JA3 fingerprinting,
-        # and ext_authz calls to OPA for policy decisions.
-        # SECURITY: This is the ONLY public-facing port.
-        # Envoy is on zerotrust_net at 172.20.2.7
+        # La porta 8443 è l'unico punto di ingresso pubblico per TUTTI i servizi.
         tcp dport 8443 accept
 
         # ============================================
-        # RULE 3: BLOCK direct access to MongoDB
+        # REGOLA 3: Accesso al database MongoDB
         # ============================================
-        # CRITICAL SECURITY RULE: Prevent direct database access
-        # In Zero Trust architecture, ALL database queries MUST
-        # pass through the PEP (Envoy) for:
-        #   - mTLS certificate validation
-        #   - JA3 fingerprint extraction
-        #   - ABAC policy enforcement via OPA
-        # Direct access would bypass ALL these controls.
-        #
-        # MongoDB is on backend_net (172.20.3.5) - internal only
-        # Only Envoy (172.20.2.7) is authorized to reach MongoDB
-        ip saddr 172.20.2.7 tcp dport 27017 accept
+        # Solo l'API Backend (172.20.3.20) può comunicare con db_primary (172.20.3.5)
+        ip saddr 172.20.3.20 ip daddr 172.20.3.5 tcp dport 27017 accept
 
-        # Log and drop any other attempt to access MongoDB
-        # These are potential data exfiltration attempts
+        # Blocca e registra qualsiasi altro tentativo di accesso diretto a MongoDB
         tcp dport 27017 log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " level crit drop
 
         # ============================================
-        # RULE 4: Allow traffic to OPA Policy Engine (PDP)
+        # REGOLA 4: Envoy -> OPA Policy Engine (PDP)
         # ============================================
-        # Port 8181: OPA REST API for policy queries
-        # Only Envoy should consult OPA for authorization decisions
-        # Other services should NOT have direct OPA access
-        # OPA is on zerotrust_net at 172.20.2.6
-        ip saddr 172.20.2.7 tcp dport 8181 accept
-        tcp dport 8181 log prefix "[WARNING] UNAUTHORIZED_OPA_ACCESS: " level warn drop
+        # Solo pep_gateway (172.20.2.7) può consultare pdp_engine (172.20.2.6)
+        # Include la porta 8181 (REST) e 9191 (gRPC per Envoy)
+        ip saddr 172.20.2.7 ip daddr 172.20.2.6 tcp dport { 8181, 9191 } accept
+        tcp dport { 8181, 9191 } log prefix "[WARNING] UNAUTHORIZED_OPA_ACCESS: " level warn drop
 
         # ============================================
-        # RULE 5: Allow traffic to Splunk SIEM
+        # REGOLA 5: Invio dei log a Splunk SIEM
         # ============================================
-        # Port 8088: HTTP Event Collector (HEC) for log ingestion
-        #   - Snort sends IDS alerts here
-        #   - Envoy sends access logs here
-        #   - OPA sends policy decisions here
-        # Port 8089: Management port for Splunk configuration
-        # Splunk is on zerotrust_net at 172.20.2.8
-        tcp dport 8088 accept
-        tcp dport 8089 accept
+        # Consenti ai container di inviare i log a siem_central (172.20.2.8)
+        # tramite la porta HEC (8088).
+        ip daddr 172.20.2.8 tcp dport 8088 accept
 
         # ============================================
-        # RULE 6: Allow ICMP for network diagnostics
+        # REGOLA 6: Consenti ICMP per la diagnostica
         # ============================================
-        # Ping and traceroute essential for troubleshooting
         ip protocol icmp accept
         ip6 nexthdr ipv6-icmp accept
 
         # ============================================
-        # RULE 7: Cross-network traffic rules (inter-container)
+        # REGOLA 7: Nega di default con registrazione (Log & Drop)
         # ============================================
-        # Allow traffic from zerotrust_net to backend_net for Envoy->MongoDB
-        # This is needed because the firewall sits on both networks
-        iif eth0 oif eth1 ip saddr 172.20.2.7 ip daddr 172.20.3.5 tcp dport 27017 accept
-
-        # Allow traffic from monitoring_net to zerotrust_net for logs
-        # Snort (172.20.2.11) needs to send alerts to Splunk (172.20.2.8)
-        iif eth2 oif eth0 ip saddr 172.20.4.0/24 ip daddr 172.20.2.8 tcp dport 8088 accept
-
-        # ============================================
-        # RULE 8: Default deny with logging
-        # ============================================
-        # Log all unmatched traffic for security monitoring
-        # This helps identify:
-        #   - Port scanning attempts
-        #   - Misconfigured services
-        #   - Potential attack vectors
+        # Registra tutto il traffico non autorizzato per il monitoraggio di sicurezza
         log prefix "[NFTABLES-FWD] DROP: " level info drop
     }
 
     # ============================================
-    # CHAIN: output
-    # Purpose: Filter traffic ORIGINATING from the firewall container
-    # Policy: accept - Firewall should be able to communicate out
+    # CATENA: output
+    # Scopo: Filtrare il traffico IN USCITA dal container del firewall
+    # Policy: accept - Il firewall deve poter comunicare verso l'esterno
     # ============================================
     chain output {
         type filter hook output priority 0; policy accept;
-
-        # Allow all outbound traffic from firewall
-        # This enables:
-        #   - DNS lookups for logging
-        #   - Forwarding logs to Splunk
-        #   - Health check responses
     }
 }
