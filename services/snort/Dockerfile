@@ -5,7 +5,7 @@
 # Component: Layer 1 Intrusion Detection System
 # Build: Compiles Snort 3.9.2.0 + libdaq + dnet fix
 # Data Creation: 2026-05-15
-# Last Updated: 2026-06-01
+# Last Updated: 2026-06-07
 # ============================================
 
 
@@ -79,15 +79,16 @@ RUN ldconfig
 RUN mkdir -p /etc/snort/rules /var/log/snort && \
     groupadd --gid 1000 snort && \
     useradd --uid 1000 --gid snort --no-create-home --shell /bin/bash snort && \
-    chown -R snort:snort /var/log/snort
+    chown -R root:root /var/log/snort && \
+    chmod 777 /var/log/snort
 
 # STEP 8: Copy Snort configuration
 COPY entrypoint-snort.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-USER snort
+# MVP: run as root to allow raw socket capture on Docker Desktop Windows
+# USER snort
 
-# STEP 9: Health Check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD pgrep snort > /dev/null || exit 1
 

@@ -6,25 +6,14 @@
 -- Purpose: Define Snort 3 engine settings, inspection modules,
 --          and output channels for ZTA traffic analysis
 -- Data Creation: 2026-05-11
--- Last Updated: 2026-05-15 (fixed: removed Snort 2 syntax from daq/stream_tcp)
--- =============================================================================
--- FIXES APPLIED:
---   - daq: removed 'module' and 'mode' (Snort 2 keys) -> use module_dirs
---   - stream_tcp: removed 'max_sessions' and 'reassembly' block (Snort 2 keys)
---   - HOME_NET: moved to variable readable by rules via ips.variables
+-- Last Updated: 2026-06-07
 -- =============================================================================
 
--- ============================================
--- STEP 1: Network Definitions
--- ============================================
--- These are Lua globals used by Snort 3 internally
+-- STEP 1: Network definitions (Lua globals read by Snort internals)
 HOME_NET = os.getenv('HOME_NET') or '172.20.0.0/16'
 EXTERNAL_NET = 'any'
 
--- ============================================
--- STEP 2: Packet Acquisition (DAQ)
--- ============================================
--- Snort 3: daq uses 'module_dirs', NOT 'module'/'mode' (those are Snort 2)
+-- STEP 2: DAQ - afpacket supports INTERFACE=any on Linux/WSL2 -> pcap
 daq = {
     module_dirs = { '/usr/local/lib/daq' },
     modules = {
@@ -35,48 +24,33 @@ daq = {
     }
 }
 
--- ============================================
--- STEP 3: Pattern Matching Engine
--- ============================================
+-- STEP 3: Pattern matching
 search_engine = { search_method = 'ac_bnfa' }
 
--- ============================================
--- STEP 4: Stream Reassembly
--- ============================================
--- Snort 3: stream_tcp does NOT support 'max_sessions' or 'reassembly' block
+-- STEP 4: Stream reassembly
 stream = { }
-stream_tcp = {
-    session_timeout = 180
-}
+stream_tcp = { session_timeout = 180 }
 stream_udp = { }
 stream_icmp = { }
 stream_ip = { }
 
--- ============================================
--- STEP 5: HTTP Inspector
--- ============================================
+-- STEP 5: HTTP inspection
 http_inspect = { }
 
--- ============================================
 -- STEP 6: Binder
--- ============================================
 binder = { }
 
--- ============================================
--- STEP 7: Output Channels
--- ============================================
+-- STEP 7: Output - only options valid in 3.9.2.0
 alert_fast = { file = true }
+alert_json  = { file = true, limit = 10 }
 
--- ============================================
--- STEP 8: Load Custom ZTA Rules
--- ============================================
+-- STEP 8: IPS variables - rules loaded via -R in entrypoint
 ips = {
     variables = {
         nets = {
-            HOME_NET = os.getenv('HOME_NET') or '172.20.0.0/16',
-            EXTERNAL_NET = 'any'
+            HOME_NET    = os.getenv('HOME_NET') or '172.20.0.0/16',
+            EXTERNAL_NET = '!$HOME_NET'
         },
         ports = {}
-    },
-    include = '/etc/snort/rules/zta.rules'
+    }
 }
