@@ -13,13 +13,19 @@ const MONGO_ROOT_USER = process.env.MONGO_ROOT_USER || "admin";
 const MONGO_ROOT_PASSWORD = process.env.MONGO_ROOT_PASSWORD || "admin_password";
 const MONGO_TLS_CA_FILE = process.env.MONGO_TLS_CA_FILE || "/certs/mongodb/ca.crt";
 
+// Connessione MongoDB con TLS.
+// MongoDB accetta solo connessioni cifrate, quindi il backend deve usare tls=true
+// e deve indicare la CA con cui verificare il certificato del database.
 const mongoUri = `mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}?authSource=admin&tls=true&tlsCAFile=${MONGO_TLS_CA_FILE}`;
+
 let db;
 
 async function connectMongo() {
   const client = new MongoClient(mongoUri);
   await client.connect();
+
   db = client.db(MONGO_DATABASE);
+
   console.log(`[api_backend] Connected to MongoDB database: ${MONGO_DATABASE}`);
 }
 
@@ -47,6 +53,7 @@ app.get("/", (req, res) => {
     endpoints: [
       "GET /utenti",
       "GET /risorse",
+      "GET /risorse/:id",
       "GET /dispositivi",
       "GET /all"
     ]
@@ -56,30 +63,81 @@ app.get("/", (req, res) => {
 app.get("/utenti", async (req, res) => {
   try {
     const utenti = await db.collection("utenti").find({}).toArray();
+
     res.json(buildResponse("utenti", utenti));
   } catch (error) {
     console.error("[api_backend] Error reading utenti:", error);
-    res.status(500).json({ error: "Errore durante la lettura degli utenti" });
+
+    res.status(500).json({
+      error: "Errore durante la lettura degli utenti"
+    });
   }
 });
 
 app.get("/risorse", async (req, res) => {
   try {
     const risorse = await db.collection("risorse").find({}).toArray();
+
     res.json(buildResponse("risorse", risorse));
   } catch (error) {
     console.error("[api_backend] Error reading risorse:", error);
-    res.status(500).json({ error: "Errore durante la lettura delle risorse" });
+
+    res.status(500).json({
+      error: "Errore durante la lettura delle risorse"
+    });
+  }
+});
+
+app.get("/risorse/:id", async (req, res) => {
+  try {
+    // Recupera l'id della risorsa dalla URL.
+    // Esempio: GET /risorse/R-001 -> idRisorsa = "R-001".
+    const idRisorsa = req.params.id;
+
+    // Cerca in MongoDB una risorsa con id_risorsa uguale all'id richiesto.
+    const risorsa = await db.collection("risorse").findOne({
+      id_risorsa: idRisorsa
+    });
+
+    // Se la risorsa non esiste, restituisce 404.
+    if (!risorsa) {
+      return res.status(404).json({
+        service: "api_backend",
+        source: "mongodb",
+        collection: "risorse",
+        error: "Risorsa non trovata",
+        id_risorsa: idRisorsa
+      });
+    }
+
+    // Se la risorsa esiste, restituisce solo quella risorsa.
+    res.json({
+      service: "api_backend",
+      source: "mongodb",
+      collection: "risorse",
+      count: 1,
+      data: risorsa
+    });
+  } catch (error) {
+    console.error("[api_backend] Error reading risorsa by id:", error);
+
+    res.status(500).json({
+      error: "Errore durante la lettura della risorsa richiesta"
+    });
   }
 });
 
 app.get("/dispositivi", async (req, res) => {
   try {
     const dispositivi = await db.collection("dispositivi").find({}).toArray();
+
     res.json(buildResponse("dispositivi", dispositivi));
   } catch (error) {
     console.error("[api_backend] Error reading dispositivi:", error);
-    res.status(500).json({ error: "Errore durante la lettura dei dispositivi" });
+
+    res.status(500).json({
+      error: "Errore durante la lettura dei dispositivi"
+    });
   }
 });
 
@@ -102,7 +160,10 @@ app.get("/all", async (req, res) => {
     });
   } catch (error) {
     console.error("[api_backend] Error reading all data:", error);
-    res.status(500).json({ error: "Errore durante la lettura dei dati" });
+
+    res.status(500).json({
+      error: "Errore durante la lettura dei dati"
+    });
   }
 });
 

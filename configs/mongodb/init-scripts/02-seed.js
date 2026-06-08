@@ -20,24 +20,53 @@ db.utenti.insertMany([
 ]);
 
 // 2. Popolamento Collezione Risorse
+// Le risorse sono differenziate per tipo e livello di sensibilità,
+// così OPA può applicare un controllo RBAC più preciso in base al ruolo.
 db.risorse.insertMany([
   {
     id_risorsa: "R-001",
-    tipo_documento: "Manifesto Carico",
+    nome: "Manifesto carico AF Claudia",
+    tipo_documento: "manifesto_carico",
+    descrizione: "Documento operativo relativo a tratta, passeggeri e veicoli imbarcati.",
     nave: "AF Claudia",
     tratta: "Ancona-Durazzo",
     data_partenza: "2026-05-10T18:00:00Z",
     passeggeri_registrati: 450,
-    veicoli_commerciali: 32
+    veicoli_commerciali: 32,
+    sensibilita: "media"
   },
   {
     id_risorsa: "R-002",
-    tipo_documento: "Telemetria Motori",
+    nome: "Telemetria motori AF Marina",
+    tipo_documento: "telemetria_motori",
+    descrizione: "Dati tecnici relativi allo stato dei motori e ai consumi della nave.",
     nave: "AF Marina",
     tratta: "Bari-Durazzo",
     stato_propulsione: "Ottimale",
     velocita_nodi: 22,
-    consumo_carburante_lh: 1800
+    consumo_carburante_lh: 1800,
+    sensibilita: "alta"
+  },
+  {
+    id_risorsa: "R-003",
+    nome: "Report sicurezza SOC",
+    tipo_documento: "report_sicurezza",
+    descrizione: "Report riservato del Security Operation Center sugli eventi di sicurezza.",
+    area: "SOC",
+    livello: "confidenziale",
+    eventi_rilevati: 7,
+    severita_massima: "alta",
+    sensibilita: "critica"
+  },
+  {
+    id_risorsa: "R-004",
+    nome: "Registro dispositivi portuali",
+    tipo_documento: "registro_dispositivi",
+    descrizione: "Elenco dei dispositivi autorizzati nelle reti operative.",
+    area: "Infrastruttura",
+    dispositivi_registrati: ["D-001", "D-002", "D-SOC"],
+    ultimo_aggiornamento: "2026-06-01T10:00:00Z",
+    sensibilita: "media"
   }
 ]);
 
