@@ -368,6 +368,13 @@ services:
       context: ./services/snort
       dockerfile: Dockerfile
     container_name: ids_network_monitor
+    entrypoint: [ "/bin/bash", "-c" ]
+    command: >
+      "
+      echo 'Arrancando Snort con Motor DAQ y Modo Verbose...';
+      snort -c /etc/snort/snort.lua -R /etc/snort/rules/zta.rules -i eth2 -A alert_json --plugin-path /usr/local/lib/daq -v
+      "
+
     hostname: snort-ids
     restart: unless-stopped
 
@@ -406,13 +413,6 @@ services:
       - HOME_NET=${HOME_NET}
       - SPLUNK_HEC_URL=${SPLUNK_HEC_URL:-https://siem_central:8088/services/collector/event}
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-
-    command: >
-      snort -c /etc/snort/snort.lua
-            -R /etc/snort/rules/zta.rules
-            -i any
-            -l /var/log/snort
-            -A alert_fast
 
     depends_on:
       siem_central:

@@ -67,7 +67,7 @@ RUN apt-get update && \
     apt-get install --no-install-recommends -y \
         libpcap0.8 libdumbnet1 hwloc libssl3 libpcre2-8-0 libluajit-5.1-2 \
         liblzma5 zlib1g libuuid1 libmnl0 ca-certificates bash \
-        libnuma1 \
+        libnuma1 iproute2 \
         tzdata tini && \
     rm -rf /var/lib/apt/lists/*
 

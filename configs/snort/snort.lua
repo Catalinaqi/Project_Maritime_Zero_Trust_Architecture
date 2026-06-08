@@ -14,6 +14,7 @@ HOME_NET = os.getenv('HOME_NET') or '172.20.0.0/16'
 EXTERNAL_NET = 'any'
 
 -- STEP 2: DAQ - afpacket supports INTERFACE=any on Linux/WSL2 -> pcap
+-- STEP 2: DAQ
 daq = {
     module_dirs = { '/usr/local/lib/daq' },
     modules = {
@@ -40,9 +41,19 @@ http_inspect = { }
 -- STEP 6: Binder
 binder = { }
 
--- STEP 7: Output - only options valid in 3.9.2.0
+-- STEP 7: Output - Modificado para cumplir con requisitos forenses (-d -e -L)
 alert_fast = { file = true }
-alert_json  = { file = true, limit = 10 }
+
+-- Reemplaza el comando -d (Dump payload) y -e (Dump MAC) con metadata estructurada
+alert_json  = {
+    file = false,
+    limit = 10
+}
+
+-- Reemplaza el comando -L (Log PCAP) guardando una copia binaria del tráfico malicioso
+log_pcap = {
+    limit = 10
+}
 
 -- STEP 8: IPS variables - rules loaded via -R in entrypoint
 ips = {

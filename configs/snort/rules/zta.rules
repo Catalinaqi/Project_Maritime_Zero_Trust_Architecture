@@ -43,6 +43,9 @@ alert tcp any any -> 172.20.2.7 8443 (
     sid:1000004; rev:1; priority:1;
 )
 
+# ⭐ ZTA-004-TEST: HONEYPOT (Para la Demo de Splunk - Sin restriccion de IP/TCP)
+alert tcp any any -> any 8443 (msg:"[ZTA-004-TEST] HONEYPOT SQLi UNION SELECT"; content:"union", nocase; content:"select", nocase, distance 0; sid:2000004; rev:1; priority:1;)
+
 # ZTA-005: OR 1=1
 alert tcp any any -> 172.20.2.7 8443 (
     msg:"[ZTA-005] SQLi OR 1=1 Bypass";
@@ -88,6 +91,9 @@ alert tcp any any -> 172.20.2.7 8443 (
     content:"GET", offset 0, depth 3;
     sid:1000009; rev:1; priority:1;
 )
+
+# ⭐ ZTA-009-TEST: HONEYPOT (Para la Demo de Splunk)
+alert tcp any any -> any 8443 (msg:"[ZTA-009-TEST] HONEYPOT Unencrypted HTTP on TLS Port 8443"; content:"GET", offset 0, depth 3; sid:2000009; rev:1; priority:1;)
 
 # ZTA-010: Heartbleed signature 0x18 0x03
 alert tcp any any -> 172.20.2.7 8443 (
@@ -142,4 +148,7 @@ alert tcp any any -> 172.20.2.7 8443 (
     sid:1000015; rev:1; priority:1;
 )
 
-alert icmp any any -> any any (msg:"ZTA-DEBUG-PING-DETECTED"; sid:1000001; rev:1;)
+alert icmp any any -> any any (msg:"ZTA-DEBUG-PING-DETECTED"; sid:999999; rev:1;)
+
+# Regla de pánico total: cualquier cosa que llegue al puerto 8443
+alert tcp any any -> any 8443 (msg:"ZTA-DEBUG-ALL-TRAFFIC-8443"; sid:888888; rev:1;)
