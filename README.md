@@ -1,7 +1,7 @@
 # Maritime Zero Trust Architecture (ZTA)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker](https://img.shields.io/badge/Docker-24.0+-blue.svg)](https://www.docker.com/)
+[![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-4.38.0-blue.svg)](https://www.docker.com/)
 [![Python](https://img.shields.io/badge/Python-3.11+-green.svg)](https://www.python.org/)
 
 **Enterprise-grade Zero Trust Architecture** for maritime operations with mutual TLS, policy-driven access control, real-time monitoring, and intrusion detection.
@@ -39,66 +39,7 @@ This project implements a production-ready **Zero Trust security model** based o
 ### **System Architecture Diagram**
 
 ```
-                    ┌─────────────────────────────────────────┐
-                    │         CLIENT LAYER                     │
-                    │  [Corporate] [VPN] [Satellite]          │
-                    │  [Foreign] [Public WiFi]                 │
-                    └──────────────┬──────────────────────────┘
-                                   │ mTLS Required
-                                   │ (Certificate-based auth)
-                    ┌──────────────▼──────────────────────────┐
-                    │    LAYER 1: NETWORK SECURITY (P1)       │
-      ┌─────────────┼──────────────────────────────────────┐  │
-      │  NFTables   │                        Snort IDS      │  │
-      │  Firewall   │◄──────Monitor──────────(15+ Rules)   │  │
-      │  (L3/L4)    │   Traffic Analysis     Alert on       │  │
-      │             │                        Anomalies       │  │
-      └─────┬───────┴────────────────────────┬─────────────┘  │
-            │ Only ports: 8443, 8088, 8181   │ Sends logs    │
-            │                                │                │
-┌───────────▼────────────────────────────────▼──────────────┐ │
-│          LAYER 2: ENFORCEMENT (P2)                         │ │
-│  ┌──────────────────────────────────────────────────┐     │ │
-│  │ Envoy Proxy (PEP - Policy Enforcement Point)     │     │ │
-│  │ • Validates mTLS certificates                    │     │ │
-│  │ • Enforces rate limiting                         │     │ │
-│  │ • Routes to OPA for authorization                │     │ │
-│  │ • Load balances to backends                      │     │ │
-│  └────────┬─────────────────────────────────────────┘     │ │
-│           │ ext_authz call                                 │ │
-│  ┌────────▼─────────────────────────────────────────┐     │ │
-│  │           LAYER 3: DECISION (P3)                  │     │ │
-│  │  ┌────────────────────────────────────────┐      │     │ │
-│  │  │ OPA (PDP - Policy Decision Point)      │      │     │ │
-│  │  │ • Evaluates Rego policies (ABAC)       │      │     │ │
-│  │  │ • Calculates risk score                │      │     │ │
-│  │  │ • Queries Splunk for behavioral data   │      │     │ │
-│  │  │ • Returns: allow/deny + audit trail    │      │     │ │
-│  │  └────────────────────────────────────────┘      │     │ │
-│  │                        │                          │     │ │
-│  │                        ▼ allow                    │     │ │
-└──┼────────────────────────────────────────────────────────┘ │
-   │                                                            │
-┌──▼────────────────────────────────────────────────────────┐ │
-│            LAYER 4: DATA & OBSERVABILITY (P4)              │ │
-│  ┌──────────────────┐        ┌─────────────────────┐      │ │
-│  │    MongoDB       │        │   Splunk SIEM       │      │ │
-│  │  • TLS only      │───────▶│  • Centralized logs │      │ │
-│  │  • RBAC (4 roles)│ Audit  │  • Risk scoring     │      │ │
-│  │  • 6 users       │  Logs  │  • Dashboards       │      │ │
-│  │  • Encrypted     │        │  • Alerting         │      │ │
-│  └──────────────────┘        └─────────────────────┘      │ │
-└────────────────────────────────────────────────────────────┘ │
-                                                                │
-                    All logs flow to Splunk ─────────────────┬─┘
-                    (NFTables, Snort, Envoy, OPA, MongoDB)   │
-                                                              │
-                         ┌────────────────────────────────────▼┐
-                         │ Security Operations Center (SOC)    │
-                         │ • Monitor dashboards                │
-                         │ • Respond to alerts                 │
-                         │ • Investigate incidents             │
-                         └─────────────────────────────────────┘
+  update diagram
 
 LEGEND:
   PEP = Policy Enforcement Point (Envoy)
@@ -142,9 +83,9 @@ Client Request
 
 | Technology | Version | Purpose | Layer |
 |-----------|---------|---------|-------|
-| **Docker** | 24.0+ | Container orchestration | Infrastructure |
-| **Docker Compose** | 2.20+ | Multi-container deployment | Infrastructure |
-| **Ubuntu Server** | 22.04.5 | Base operating system | Infrastructure |
+| **Docker Desktop** | 4.38.0 | Container orchestration & management | Infrastructure |
+| **Docker Compose** | v2.30+ (integrated with Docker Desktop) | Multi-container deployment | Infrastructure |
+| **Windows 11** | 23H2+ | Host operating system | Infrastructure |
 | **Python** | 3.11+ | Automation & testing | Development |
 | **Poetry** | 1.7+ | Dependency management | Development |
 
@@ -201,25 +142,24 @@ Client Request
 
 ### **CORE Services (7 permanent containers)**
 
-| # | Service Name | Technology | Function | Ports | Network |
-|---|-------------|------------|----------|-------|---------|
-| 1 | `firewall_perimeter` | NFTables | L3/L4 packet filtering | host | host |
-| 2 | `ids_network_monitor` | Snort 3 | Network intrusion detection | host | host |
-| 3 | `siem_central` | Splunk 9.1 | Security monitoring & correlation | 8000, 8088, 8089 | monitoring |
-| 4 | `db_primary` | MongoDB 7.0 | Protected database with TLS | 27017 | backend (internal) |
-| 5 | `db_seeder` | MongoDB 7.0 | Initial data loader (one-shot) | - | backend |
-| 6 | `pdp_engine` | OPA 0.60 | Policy decision engine | 8181 | zerotrust |
-| 7 | `pep_gateway` | Envoy 1.29 | mTLS proxy & enforcement | 8443, 9901 | zerotrust, backend, clients |
+| # | Service Name | Technology | Function | Ports | Networks |
+|---|-------------|------------|----------|-------|----------|
+| 1 | `firewall_perimeter` | NFTables | L3/L4 packet filtering | - | zerotrust, backend, monitoring, corporate, vpn, satellite, public |
+| 2 | `ids_network_monitor` | Snort 3 | Network intrusion detection | - | zerotrust, backend, monitoring, corporate, vpn, satellite, public |
+| 3 | `siem_central` | Splunk 9.1 | Security monitoring & correlation | 8000, 8088 | zerotrust, backend, monitoring |
+| 4 | `db_primary` | MongoDB 7.0 | Protected database with TLS | 27017 (internal) | backend (internal) |
+| 5 | `api_backend` | Node.js (API) | MongoDB data access layer | 3000 (internal) | backend |
+| 6 | `pdp_engine` | OPA 0.60 | Policy decision engine | 8181, 9191 | zerotrust, monitoring, corporate, vpn, satellite, public |
+| 7 | `pep_gateway` | Envoy 1.29 | mTLS proxy & enforcement | 8443, 9901 | zerotrust, backend, corporate, vpn, satellite, public |
 
-### **TESTING Clients (5 testing containers)**
+### **TESTING Clients (4 testing containers)**
 
-| # | Client Name | Profile | Access Level | Use Case |
-|---|------------|---------|--------------|----------|
-| 8 | `client_corporate` | Corporate HQ | **Full access** | Internal operations team |
-| 9 | `client_vpn_remote` | VPN Remote | **Medium access** | Remote employee via VPN |
-| 10 | `client_satellite` | Satellite Office | **Medium access** | Branch office operations |
-| 11 | `client_foreign_agent` | Foreign Partner | **Restricted** | External partner with limited access |
-| 12 | `client_public_wifi` | Public WiFi | **Minimal** | Public users (read-only) |
+| # | Client Name | Profile | User Role | Network | Access Level |
+|---|------------|---------|-----------|---------|--------------|
+| 8 | `client_soc_admin` | Corporate HQ | `ruolo_gestione_flotta` (Fleet Management) | corporate_net | **Full access** |
+| 9 | `client_operatore_ancona` | VPN Remote | `ruolo_banchina` (Dock Operator) | vpn_net | **Medium access** |
+| 10 | `client_capitano_claudia` | Satellite Office | `ruolo_equipaggio` (Crew) | satellite_net | **Medium access** |
+| 11 | `client_intruso` | Public WiFi | `ruolo_non_autorizzato` (Unauthorized) | public_net | **Minimal / Blocked** |
 
 ### **Service Dependencies**
 
@@ -230,16 +170,16 @@ Start Order (respecting dependencies):
                             ├─► Must be healthy first
 2. db_primary (MongoDB) ────┘
 
-3. pdp_engine (OPA) ──────► Depends on: Splunk, MongoDB
+3. api_backend ────────────► Depends on: MongoDB (healthy)
 
-4. pep_gateway (Envoy) ───► Depends on: OPA, MongoDB
+4. pdp_engine (OPA) ──────► Depends on: Splunk (started)
 
-5. firewall_perimeter ────► Can start anytime
-6. ids_network_monitor ───► Depends on: Splunk
+5. pep_gateway (Envoy) ───► Depends on: OPA, api_backend
 
-7. db_seeder ─────────────► Depends on: MongoDB (one-shot job)
+6. firewall_perimeter ────► Can start anytime
+7. ids_network_monitor ───► Depends on: Splunk (started)
 
-8-12. clients_* ──────────► Depends on: Envoy (testing only)
+8-11. clients_* ──────────► Depends on: Envoy (testing only, profile: testing)
 ```
 
 ---
@@ -248,8 +188,8 @@ Start Order (respecting dependencies):
 
 ### **System Requirements**
 
-- **OS**: Ubuntu Server 22.04.5 LTS
-- **Virtualization**: VirtualBox 7.0+
+- **OS**: Windows 11 23H2+ (or Windows 10 22H2+)
+- **Docker**: Docker Desktop 4.38.0 (WSL 2 backend recommended)
 - **CPU**: 4 cores minimum (8 recommended)
 - **RAM**: 8 GB minimum (16 GB recommended)
 - **Disk**: 40 GB available space
@@ -257,29 +197,28 @@ Start Order (respecting dependencies):
 
 ### **Prerequisites Installation**
 
-```bash
-# 1. Update system
-sudo apt update && sudo apt upgrade -y
+```powershell
+# 1. Install Docker Desktop 4.38.0
+# Download from https://www.docker.com/products/docker-desktop/
+# Enable WSL 2 backend during installation
 
-# 2. Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
-newgrp docker
+# 2. Install Python 3.11+ & Poetry
+# Download from https://www.python.org/downloads/windows/
+# Then install Poetry:
+(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
 
-# 3. Verify Docker
+# 3. Open a new PowerShell and verify
 docker --version
 docker compose version
-
-# 4. Install Python & Poetry
-sudo apt install python3.11 python3-pip -y
-curl -sSL https://install.python-poetry.org | python3 -
-export PATH="$HOME/.local/bin:$PATH"
-
-# 5. Verify installations
-python3 --version
+python --version
 poetry --version
+
+# 4. Enable WSL 2 integration (if not default)
+# Open Docker Desktop → Settings → Resources → WSL Integration
+# Ensure your distro is enabled
 ```
+
+> **Note**: Docker Desktop 4.38.0 includes both Docker Engine and Docker Compose. No separate Linux package installation is needed.
 
 ### **Project Setup**
 
@@ -342,58 +281,22 @@ make test-all
 
 ```
 Project_Maritime_Zero_Trust_Architecture/
-├── .github/workflows/          # GitHub Actions CI/CD
-│   ├── ci.yml                 # Continuous Integration
-│   ├── security-scan.yml      # Security scanning
-│   └── deploy.yml             # Deployment automation
-│
-├── .idea/                      # IntelliJ IDEA configuration
-│   ├── .gitignore             # IDEA-specific ignores
-│   └── misc.xml               # Project settings
-│
 ├── configs/                    # Service configurations
 │   ├── envoy/
-│   │   └── envoy.yaml         # Envoy proxy config (mTLS, ext_authz)
 │   ├── opa/
-│   │   ├── policies/
-│   │   │   └── authz.rego     # Authorization policies (ABAC)
-│   │   └── data/
-│   │       └── roles.json     # Role definitions
 │   ├── mongodb/
-│   │   ├── mongod.conf        # MongoDB config (TLS, RBAC)
-│   │   ├── init-scripts/
-│   │   │   └── 01-init.js     # User & role creation
-│   │   └── seed/
-│   │       └── data.js        # Initial data
 │   ├── splunk/
-│   │   └── default.yml        # Splunk config (HEC, indexes)
 │   ├── snort/
-│   │   ├── snort.conf         # Snort IDS config
-│   │   └── rules/
-│   │       └── zta.rules      # Custom ZTA detection rules
 │   └── nftables/
-│       └── rules.nft          # Firewall rules
 │
 ├── services/                   # Docker service definitions
 │   ├── envoy/
-│   │   ├── Dockerfile
-│   │   └── entrypoint.sh
 │   ├── opa/
-│   │   └── Dockerfile
 │   ├── mongodb/
-│   │   ├── Dockerfile
-│   │   └── seed-entrypoint.sh
 │   ├── splunk/
-│   │   └── Dockerfile
 │   ├── snort/
-│   │   ├── Dockerfile
-│   │   └── entrypoint.sh
 │   ├── nftables/
-│   │   ├── Dockerfile
-│   │   └── entrypoint.sh
 │   └── clients/
-│       ├── Dockerfile
-│       └── scripts/
 │
 ├── scripts/                    # Python automation scripts
 │   ├── __init__.py
@@ -417,9 +320,6 @@ Project_Maritime_Zero_Trust_Architecture/
 │   └── diagrams/              # Architecture diagrams
 │
 ├── certs/                      # PKI certificates (gitignored)
-│   ├── ca/                    # Certificate Authority
-│   ├── server/                # Server certificates
-│   └── clients/               # Client certificates
 │
 ├── docker-compose.yml          # Main orchestration file
 ├── .env.example                # Environment template
