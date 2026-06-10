@@ -33,6 +33,8 @@ services:
       #risk_score e file .json
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data/risk_data:/opa_data
+      # snort
+      - snort_logs:/var/log/snort:ro
 
     environment:
       - SPLUNK_START_ARGS=--accept-license
@@ -366,74 +368,74 @@ services:
   ids_network_monitor:
     build:
       context: ./services/snort
-      dockerfile: Dockerfile
-    container_name: ids_network_monitor
-    entrypoint: [ "/bin/bash", "-c" ]
-    command: >
-      "
-      echo 'Arrancando Snort con Motor DAQ y Modo Verbose...';
-      snort -c /etc/snort/snort.lua -R /etc/snort/rules/zta.rules -i eth2 -A alert_json --plugin-path /usr/local/lib/daq -v
-      "
+      dockerfile: Dockerfile # Specifica dove si trova il Dockerfile per costruire l'immagine di Snort.
+    container_name: ids_network_monitor # Nome fisso del contenitore per facilitare i comandi nel terminale.
+    hostname: snort-ids # Nome della macchina virtuale all'interno del contenitore.
+    restart: unless-stopped # Si riavvia sempre in automatico se crasha, a meno che tu non lo fermi manualmente.
 
-    hostname: snort-ids
-    restart: unless-stopped
+    # Translates the $$SNORT_IFACE variable via bash. Pre-creates the alert_json.txt file
+    # with open read permissions (chmod 644) for SIEM ingestion, and starts Snort in IDS mode.
+    command: /bin/bash -c "touch /var/log/snort/alert_json.txt && chmod 644 /var/log/snort/alert_json.txt && snort -c /etc/snort/snort-mvp.lua -i \"$$SNORT_IFACE\" -l /var/log/snort -u snort -g snort -k none"
 
+    # --- SECURITY & ZERO TRUST ---
+    privileged: false # Security Best Practice: Avoid granting full root privileges to the container.
+    cap_add:
+      - NET_ADMIN # Grant only the privilege to manage network interfaces.
+      - NET_RAW   # Required to capture raw network packets in transit.
+    security_opt:
+      - apparmor:unconfined # Remove AppArmor restrictions to allow Snort deep traffic inspection.
+
+    # --- NETWORKING (The "Black Box") ---
     networks:
-      zerotrust_net:
+      # Connecting Snort to all 7 virtual networks.
+      # Linux will assign eth0, eth1, eth2, etc., based on this order.
+      zerotrust_net: # Core ZTA processing -> envoy+opa+splunk+snort+nftable
         ipv4_address: 172.20.2.11
-      backend_net:
+      backend_net: # Isolated data storage -> mongoDB+api_backend
         ipv4_address: 172.20.3.11
-      monitoring_net:
+      monitoring_net: # Security logs & alerts -> splunk+nftables+snort
         ipv4_address: 172.20.4.11
-      corporate_net:
+      corporate_net: # Rete aziendale — alta fiducia
         ipv4_address: 172.20.10.11
-      vpn_net:
+      vpn_net: # Rete VPN — media fiducia
         ipv4_address: 172.20.11.11
-      satellite_net:
+      satellite_net: # Rete satellitare — media fiducia
         ipv4_address: 172.20.12.11
-      public_net:
+      public_net: # Rete pubblica — bassa fiducia
         ipv4_address: 172.20.13.11
 
-    user: root # add
-    privileged: true
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    security_opt:
-      - apparmor:unconfined
-
+    # --- DATA PERSISTENCE & FILE MAPPING ---
     volumes:
-      - ./configs/snort/snort.lua:/etc/snort/snort.lua:ro
-      - ./configs/snort/rules:/etc/snort/rules:ro
-      - snort_logs:/var/log/snort
+      # Mapping files from your host (PC) to the container as read-only (ro) for security.
+      # Updated paths reflecting the new flat structure in the /configs/snort directory.
+      - ./configs/snort/snort-mvp.lua:/etc/snort/snort-mvp.lua:ro
+      - ./configs/snort/zta-mvp.rules:/etc/snort/zta-mvp.rules:ro
+      - snort_logs:/var/log/snort # Save logs in a Docker-managed volume.
 
+    # --- ENVIRONMENT VARIABLES ---
     environment:
-      - IDS_MODE=${IDS_MODE:-live}
-      - INTERFACE=${INTERFACE:-any}
-      - HOME_NET=${HOME_NET}
-      - SPLUNK_HEC_URL=${SPLUNK_HEC_URL:-https://siem_central:8088/services/collector/event}
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+      - SNORT_IFACE=${SNORT_IFACE} # Pass the interface.
+      - TZ=${TZ} # Synchronize the container's timezone.
 
+    # --- ORCHESTRATION ---
     depends_on:
       siem_central:
-        condition: service_started
+        condition: service_started # Wait for Splunk/SIEM to start before launching Snort.
 
+    # --- HEALTH MONITORING (Healthcheck) ---
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "test -f /etc/snort/snort.lua && test -f /etc/snort/rules/zta.rules && test -d /var/log/snort"
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+      test: [ "CMD", "pgrep", "snort" ] # Check if the 'snort' process is running.
+      interval: 30s # Run the test every 30 seconds.
+      timeout: 10s # Fail if no response within 10 seconds.
+      retries: 3 # Try 3 times before marking the container as "unhealthy".
+      start_period: 60s # Give Snort 60 seconds to load all rules before testing.
 
+    # --- DOCKER LOG MANAGEMENT ---
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "10m" # Prevent terminal logs from consuming all disk space (Max 10 MB).
+        max-file: "3"   # Keep a maximum of 3 old log files.
   # ============================================================================
   # TESTING CLIENTS
   # ============================================================================
@@ -488,7 +490,6 @@ services:
       pep_gateway:
         condition: service_started
 
-    command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 
@@ -543,7 +544,6 @@ services:
       pep_gateway:
         condition: service_started
 
-    command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 
@@ -593,7 +593,6 @@ services:
       pep_gateway:
         condition: service_started
 
-    #command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 
@@ -638,7 +637,11 @@ services:
       pep_gateway:
         condition: service_started
 
-    command: ["tail", "-f", "/dev/null"]
+    # --- TRUCO PARA MANTENER EL CONTENEDOR DESPIERTO ---
+    tty: true
+    stdin_open: true
+    command: tail -f /dev/null
+
     profiles:
       - testing
 
@@ -754,4 +757,3 @@ volumes:
   snort_logs:
     name: maritime-zta_snort_logs
     driver: local
-

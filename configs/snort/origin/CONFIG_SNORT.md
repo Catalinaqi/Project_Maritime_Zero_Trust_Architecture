@@ -104,7 +104,7 @@ Attack Packet → eth0/eth1/eth2/eth3 → Snort 3 Detection Engine → Rule Matc
 | **5. Lateral Movement** | 1000012–1000013 | 2 | Client-to-client attack pivot | High |
 | **6. DDoS/Resource** | 1000014–1000015 | 2 | SYN flood, Slowloris | High |
 
-**Total: 15 rules** — See [`CONFIG_SNORT_RULES.md`](./rules/CONFIG_SNORT_RULES.md) for detailed rule definitions.
+**Total: 15 rules** — See [`CONFIG_SNORT_RULES.md`](CONFIG_SNORT_RULES.md) for detailed rule definitions.
 
 ---
 
@@ -153,7 +153,7 @@ docker exec client_corporate timeout 2 bash -c 'echo > /dev/tcp/172.20.3.5/27017
 docker exec ids_network_monitor tail -5 /var/log/snort/alert
 ```
 
-> For full testing procedures, see [`CONFIG_SNORT_RULES.md`](./rules/CONFIG_SNORT_RULES.md#testing).
+> For full testing procedures, see [`CONFIG_SNORT_RULES.md`](CONFIG_SNORT_RULES.md#testing).
 
 ---
 

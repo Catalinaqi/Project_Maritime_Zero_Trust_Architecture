@@ -143,7 +143,7 @@ services:
       - ./certs/mongodb/ca.crt:/certs/mongodb/ca.crt:ro
 
     environment:
-      
+
       - PORT=3000
       - MONGO_HOST=${MONGO_HOST}
       - MONGO_PORT=${MONGO_PORT}
@@ -368,6 +368,13 @@ services:
       context: ./services/snort
       dockerfile: Dockerfile
     container_name: ids_network_monitor
+    entrypoint: [ "/bin/bash", "-c" ]
+    command: >
+      "
+      echo 'Arrancando Snort con Motor DAQ y Modo Verbose...';
+      snort -c /etc/snort/snort.lua -R /etc/snort/rules/zta.rules -i eth2 -A alert_json --plugin-path /usr/local/lib/daq -v
+      "
+
     hostname: snort-ids
     restart: unless-stopped
 
@@ -387,6 +394,7 @@ services:
       public_net:
         ipv4_address: 172.20.13.11
 
+    user: root # add
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -400,10 +408,10 @@ services:
       - snort_logs:/var/log/snort
 
     environment:
-      - IDS_MODE=portable
-      - INTERFACE=eth0
-      - HOME_NET=172.20.0.0/16
-      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      - IDS_MODE=${IDS_MODE:-live}
+      - INTERFACE=${INTERFACE:-any}
+      - HOME_NET=${HOME_NET}
+      - SPLUNK_HEC_URL=${SPLUNK_HEC_URL:-https://siem_central:8088/services/collector/event}
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
 
     depends_on:
@@ -480,6 +488,7 @@ services:
       pep_gateway:
         condition: service_started
 
+    command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 
@@ -534,6 +543,7 @@ services:
       pep_gateway:
         condition: service_started
 
+    command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 
@@ -583,6 +593,7 @@ services:
       pep_gateway:
         condition: service_started
 
+    #command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 
@@ -627,6 +638,7 @@ services:
       pep_gateway:
         condition: service_started
 
+    command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 

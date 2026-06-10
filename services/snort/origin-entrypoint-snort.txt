@@ -181,25 +181,28 @@ start_portable_mode() {
 # =============================================================================
 # STEP 4B: Live IDS mode
 # =============================================================================
-# =============================================================================
-# STEP 4B: Live IDS mode
-# =============================================================================
 start_live_mode() {
-    log_info "Iniciando Snort (Modo TTY Directo a Pantalla)..."
+    log_info "Starting Snort 3 in live IDS mode..."
+    log_info "Monitoring interface: ${INTERFACE}"
+    log_warn "Live mode requires packet capture support from the host environment."
+    log_warn "If this fails on Docker Desktop Windows/Mac, use IDS_MODE=portable."
 
-    # Detección de interfaz limpia
-    RAW_IFACE=$(ip -4 addr | grep "172.20.13.11" -B1 | head -n1 | awk '{print $2}' | tr -d ':')
-    INTERFACE=${RAW_IFACE%%@*}
-    if [ -z "$INTERFACE" ]; then INTERFACE="eth2"; fi
-
-    log_info "Interfaz detectada: ${INTERFACE}"
-
-    # Ejecución desnuda de Snort directo a consola (sin tuberías)
-    exec snort -c "${SNORT_CONF}" \
-               -R "${SNORT_RULES}" \
-               -i "${INTERFACE}" \
-               -A alert_json \
-               --plugin-path /usr/local/lib/daq
+    if [ -f "${SNORT_RULES}" ]; then
+        exec snort -c "${SNORT_CONF}" \
+                   -R "${SNORT_RULES}" \
+                   -i "${INTERFACE}" \
+                   -l "${SNORT_LOG_DIR}" \
+                   -A alert_fast \
+                   --plugin-path /usr/local/lib/daq \
+                   2>&1
+    else
+        exec snort -c "${SNORT_CONF}" \
+                   -i "${INTERFACE}" \
+                   -l "${SNORT_LOG_DIR}" \
+                   -A alert_fast \
+                   --plugin-path /usr/local/lib/daq \
+                   2>&1
+    fi
 }
 
 # =============================================================================

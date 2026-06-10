@@ -1,0 +1,11 @@
+# MVP Rule 1: ICMP Ping
+alert icmp any any -> any any (msg:"[ZTA-MVP-001] INTRUDER PING DETECTED"; sid:999999; rev:2;)
+
+# MVP Rule 2: TCP SYN Scan
+alert tcp any any -> any any (msg:"[ZTA-MVP-002] TCP SYN SCAN ATTEMPT"; flags:S; sid:1000001; rev:2; priority:2;)
+
+# MVP Rule 3: SQLi UNION SELECT against Envoy (8443)
+alert tcp any any -> $HOME_NET 8443 (msg:"[ZTA-MVP-003] SQLi ATTEMPT ON ENVOY"; flow:to_server,established; content:"union",nocase; content:"select",nocase,distance 0,within 50; sid:2000004; rev:4; priority:1;)
+
+# MVP Rule 4: Direct attempt on MongoDB kat
+alert tcp any any -> $HOME_NET 27017 (msg:"[ZTA-MVP-004] DIRECT MONGODB ATTEMPT"; sid:2000005; rev:1; priority:1;)

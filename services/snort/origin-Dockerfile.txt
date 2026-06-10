@@ -1,11 +1,13 @@
-# =============================================================================
-# Dockerfile for Snort 3 IDS Container (MVP VERSION)
-# =============================================================================
+# ============================================
+# Dockerfile for Snort 3 IDS Container
+# ============================================
 # Author: Network Guardian (Snort/IDS)
 # Component: Layer 1 Intrusion Detection System
-# Purpose: Compiles Snort 3.9.2.0. Stripped down for direct execution.
-# Last Updated: 2026-06-08
-# =============================================================================
+# Build: Compiles Snort 3.9.2.0 + libdaq + dnet fix
+# Data Creation: 2026-05-15
+# Last Updated: 2026-06-01
+# ============================================
+
 
 # ============================================
 # STAGE 1: Build Environment (The "Constructor")
@@ -26,6 +28,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # STEP 2: Path Shimming (The "Bridge") - usando dumbnet
+# Ubuntu 22.04 usa libdumbnet-dev que instala el header como dumbnet.h
+# Snort espera dnet.h — creamos el symlink correcto
 RUN ln -sf /usr/include/dumbnet.h /usr/include/dnet.h && \
     ln -sf /usr/lib/x86_64-linux-gnu/libdumbnet.so /usr/lib/x86_64-linux-gnu/libdnet.so && \
     ldconfig
@@ -38,6 +42,7 @@ RUN git clone https://github.com/snort3/libdaq.git && \
     make -j$(nproc) && make install && ldconfig
 
 # STEP 4: Build Snort 3 (Version 3.9.2.0)
+# Key fix: point DDNET_INCLUDE_DIR to /usr/local/include where our dnet.h lives
 RUN git clone --branch 3.9.2.0 --depth 1 https://github.com/snort3/snort3.git && \
     cd snort3 && \
     mkdir build && cd build && \
@@ -62,26 +67,28 @@ RUN apt-get update && \
     apt-get install --no-install-recommends -y \
         libpcap0.8 libdumbnet1 hwloc libssl3 libpcre2-8-0 libluajit-5.1-2 \
         liblzma5 zlib1g libuuid1 libmnl0 ca-certificates bash \
-        libnuma1 iproute2 \
-        tzdata tini tcpdump && \
+        libnuma1 \
+        tzdata tini && \
     rm -rf /var/lib/apt/lists/*
 
 # STEP 6: Transfer the "Brain"
 COPY --from=builder /usr/local/ /usr/local/
 RUN ldconfig
 
-# STEP 7: System Hardening & Directories
+# STEP 7: System Hardening
 RUN mkdir -p /etc/snort/rules /var/log/snort && \
     groupadd --gid 1000 snort && \
     useradd --uid 1000 --gid snort --no-create-home --shell /bin/bash snort && \
-    chown -R root:root /var/log/snort && \
-    chmod 777 /var/log/snort
+    chown -R snort:snort /var/log/snort
 
-# STEP 8: Health check
+# STEP 8: Copy Snort configuration
+COPY entrypoint-snort.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER snort
+
+# STEP 9: Health Check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD pgrep snort || exit 1
+    CMD pgrep snort > /dev/null || exit 1
 
-# STEP 9: MVP Execution Setup
-ENTRYPOINT ["/usr/bin/tini", "--"]
-
-CMD ["snort", "-V"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
