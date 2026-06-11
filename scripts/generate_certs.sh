@@ -3,9 +3,9 @@
 set -e
 export MSYS_NO_PATHCONV=1
 
-echo "Inizio generazione certificati mTLS..."
+echo "Inizio generazione certificati mTLS base..."
 
-# Creo tutte le cartelle necessarie per CA, Envoy, MongoDB, client e dispositivi
+# Creo tutte le cartelle necessarie per CA, Envoy, MongoDB, client e dispositivi.
 mkdir -p certs/ca certs/server certs/mongodb
 
 mkdir -p certs/clients/operatore_ancona \
@@ -22,7 +22,18 @@ mkdir -p certs/devices/D-001 \
 # 1. CA ROOT
 # ------------------------------------------------------------
 # Genera la Certification Authority principale del progetto.
-# Questa CA firmerà i certificati di Envoy, MongoDB, utenti e dispositivi.
+# Questa CA firmerà:
+# - certificato server Envoy
+# - certificato server MongoDB
+# - certificati utente legacy
+# - CSR dei dispositivi generate tramite SWTPM
+#
+# ATTENZIONE:
+# Se rigeneri la CA, devi rigenerare anche i certificati TPM-backed
+# dei dispositivi con /scripts/provision_device_tpm.sh,
+# perché i vecchi device.crt sarebbero firmati dalla vecchia CA.
+echo "Generazione CA root..."
+
 openssl req -x509 -sha256 -nodes -days 3650 -newkey rsa:4096 \
   -keyout certs/ca/ca.key \
   -out certs/ca/ca.crt \
@@ -58,7 +69,7 @@ openssl x509 -req -days 365 -sha256 \
 
 rm -f certs/server/server.csr certs/server/server.ext
 
-# Copio la CA anche nella cartella server, utile per debug e configurazioni
+# Copio la CA anche nella cartella server, utile per debug e configurazioni.
 cp certs/ca/ca.crt certs/server/ca.crt
 
 
@@ -102,16 +113,21 @@ rm -f certs/mongodb/mongodb.csr certs/mongodb/mongodb.ext
 
 
 # ------------------------------------------------------------
-# 4. FUNZIONE GENERAZIONE CERTIFICATI CLIENT UTENTE
+# 4. FUNZIONE GENERAZIONE CERTIFICATI CLIENT UTENTE LEGACY
 # ------------------------------------------------------------
-# Ogni certificato client rappresenta l'identità dell'utente.
-# Il CN viene usato per identificare l'utente, mentre l'OU contiene il device associato.
+# Questi certificati rappresentano l'identità utente nella modalità legacy.
+# Nel flusso attuale Zero Trust:
+# - il certificato mTLS identifica il dispositivo;
+# - l'utente applicativo viene passato tramite X-User-Id;
+# - la chiave privata del dispositivo è custodita nel TPM/SWTPM.
+#
+# Manteniamo questi certificati solo per compatibilità/debug.
 generate_client() {
-    local FOLDER=$1   # Cartella: deve combaciare con il docker-compose
-    local CN=$2       # Common Name: identità utente
-    local OU=$3       # Organizational Unit: device ID
+    local FOLDER=$1
+    local CN=$2
+    local OU=$3
 
-    echo "Generazione certificato client: CN=$CN, OU=$OU, cartella=$FOLDER"
+    echo "Generazione certificato client legacy: CN=$CN, OU=$OU, cartella=$FOLDER"
 
     openssl req -newkey rsa:2048 -nodes \
       -keyout certs/clients/$FOLDER/client.key \
@@ -127,13 +143,13 @@ generate_client() {
 
     rm -f certs/clients/$FOLDER/client.csr
 
-    # Copia la CA in ogni cartella client, utile per curl, debug e test mTLS.
+    # Copia la CA in ogni cartella client, utile per curl, debug e test.
     cp certs/ca/ca.crt certs/clients/$FOLDER/ca.crt
 }
 
 
 # ------------------------------------------------------------
-# 5. GENERAZIONE CERTIFICATI CLIENT UTENTE
+# 5. GENERAZIONE CERTIFICATI CLIENT UTENTE LEGACY
 # ------------------------------------------------------------
 generate_client "operatore_ancona" "Marco Rossi"    "D-001"
 generate_client "capitano_claudia" "Elena Bianchi"  "D-002"
@@ -142,42 +158,49 @@ generate_client "intruso"          "hacker_esterno" "Sconosciuto"
 
 
 # ------------------------------------------------------------
-# 6. FUNZIONE GENERAZIONE CERTIFICATI DISPOSITIVO
+# 6. PREPARAZIONE CARTELLE DEVICE TPM-BACKED
 # ------------------------------------------------------------
-# Ogni certificato device rappresenta l'identità del dispositivo.
-# Il CN contiene l'identificativo del dispositivo, per esempio D-001.
-generate_device() {
+# Da questo punto in poi NON generiamo più device.key con OpenSSL.
+# I certificati dei dispositivi vengono generati tramite SWTPM:
+#
+#   docker compose --profile testing run --rm client_d001_tpm  /scripts/provision_device_tpm.sh
+#   docker compose --profile testing run --rm client_d002_tpm  /scripts/provision_device_tpm.sh
+#   docker compose --profile testing run --rm client_dsoc_tpm  /scripts/provision_device_tpm.sh
+#
+# Ogni provisioning:
+# - crea una chiave privata dentro il TPM emulato;
+# - esporta solo la chiave pubblica;
+# - genera una CSR usando l'handle TPM;
+# - firma la CSR con la CA del progetto;
+# - produce device.crt senza esportare device.key.
+prepare_device_folder() {
     local FOLDER=$1
-    local DEVICE_ID=$2
-    local LOCATION=$3
 
-    echo "Generazione certificato device: DEVICE_ID=$DEVICE_ID, cartella=$FOLDER"
+    echo "Preparazione cartella device TPM-backed: $FOLDER"
 
-    openssl req -newkey rsa:2048 -nodes \
-      -keyout certs/devices/$FOLDER/device.key \
-      -out    certs/devices/$FOLDER/device.csr \
-      -subj "/O=Maritime_Zero_Trust/OU=Device/CN=$DEVICE_ID/L=$LOCATION"
+    mkdir -p certs/devices/$FOLDER
 
-    openssl x509 -req -days 365 -sha256 \
-      -in certs/devices/$FOLDER/device.csr \
-      -CA certs/ca/ca.crt \
-      -CAkey certs/ca/ca.key \
-      -CAcreateserial \
-      -out certs/devices/$FOLDER/device.crt
-
-    rm -f certs/devices/$FOLDER/device.csr
-
-    # Copia la CA anche nella cartella del dispositivo.
+    # Copio la CA nella cartella del dispositivo.
     cp certs/ca/ca.crt certs/devices/$FOLDER/ca.crt
+
+    # Rimuovo eventuali certificati/chiavi device legacy.
+    # La chiave privata device.key non deve più essere usata nel flusso TPM.
+    rm -f certs/devices/$FOLDER/device.key
+    rm -f certs/devices/$FOLDER/device.csr
+    rm -f certs/devices/$FOLDER/device_tpm_public.pem
+
+    # Rimuovo anche il vecchio device.crt, perché dovrà essere rigenerato
+    # dal provisioning TPM-backed.
+    rm -f certs/devices/$FOLDER/device.crt
 }
 
 
 # ------------------------------------------------------------
-# 7. GENERAZIONE CERTIFICATI DISPOSITIVO
+# 7. PREPARAZIONE DEVICE
 # ------------------------------------------------------------
-generate_device "D-001" "D-001" "Terminal-Ancona"
-generate_device "D-002" "D-002" "Ponte-Comando"
-generate_device "D-SOC" "D-SOC" "SOC-Center"
+prepare_device_folder "D-001"
+prepare_device_folder "D-002"
+prepare_device_folder "D-SOC"
 
 
 # ------------------------------------------------------------
@@ -185,5 +208,17 @@ generate_device "D-SOC" "D-SOC" "SOC-Center"
 # ------------------------------------------------------------
 rm -f certs/ca/ca.srl
 
-echo "Certificati generati correttamente."
+echo ""
+echo "Certificati base generati correttamente."
 echo "Certificato MongoDB creato in: certs/mongodb/mongodb.pem"
+echo ""
+echo "ATTENZIONE:"
+echo "I certificati device non sono stati generati con OpenSSL."
+echo "Ora devi generare i certificati TPM-backed con:"
+echo ""
+echo "  docker compose --profile testing run --rm client_d001_tpm /scripts/provision_device_tpm.sh"
+echo "  docker compose --profile testing run --rm client_d002_tpm /scripts/provision_device_tpm.sh"
+echo "  docker compose --profile testing run --rm client_dsoc_tpm /scripts/provision_device_tpm.sh"
+echo ""
+echo "Nel nuovo flusso la chiave privata del device non viene esportata come device.key,"
+echo "ma resta nel TPM emulato SWTPM."

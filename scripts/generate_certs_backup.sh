@@ -5,11 +5,7 @@ export MSYS_NO_PATHCONV=1
 
 echo "Inizio generazione certificati mTLS..."
 
-# ------------------------------------------------------------
-# 0. CREAZIONE CARTELLE
-# ------------------------------------------------------------
-
-# Creo tutte le cartelle necessarie per CA, Envoy, MongoDB, client e dispositivi.
+# Creo tutte le cartelle necessarie per CA, Envoy, MongoDB, client e dispositivi
 mkdir -p certs/ca certs/server certs/mongodb
 
 mkdir -p certs/clients/operatore_ancona \
@@ -23,21 +19,8 @@ mkdir -p certs/devices/D-001 \
 
 
 # ------------------------------------------------------------
-# 0.1 FIX PREVENTIVO PER ca.crt DI MONGODB
-# ------------------------------------------------------------
-
-# Se Docker ha creato per errore certs/mongodb/ca.crt come cartella,
-# la elimino perché MongoDB si aspetta un file chiamato ca.crt.
-if [ -d certs/mongodb/ca.crt ]; then
-  echo "ATTENZIONE: certs/mongodb/ca.crt è una cartella. La elimino."
-  rm -rf certs/mongodb/ca.crt
-fi
-
-
-# ------------------------------------------------------------
 # 1. CA ROOT
 # ------------------------------------------------------------
-
 # Genera la Certification Authority principale del progetto.
 # Questa CA firmerà i certificati di Envoy, MongoDB, utenti e dispositivi.
 openssl req -x509 -sha256 -nodes -days 3650 -newkey rsa:4096 \
@@ -49,7 +32,6 @@ openssl req -x509 -sha256 -nodes -days 3650 -newkey rsa:4096 \
 # ------------------------------------------------------------
 # 2. CERTIFICATO SERVER ENVOY
 # ------------------------------------------------------------
-
 # Certificato usato dal PEP Envoy per esporre l'endpoint HTTPS/mTLS.
 # Il CN e il SAN devono contenere pep_gateway, cioè il nome del servizio Docker.
 echo "Generazione certificato server Envoy..."
@@ -76,14 +58,13 @@ openssl x509 -req -days 365 -sha256 \
 
 rm -f certs/server/server.csr certs/server/server.ext
 
-# Copio la CA anche nella cartella server, utile per debug e configurazioni.
+# Copio la CA anche nella cartella server, utile per debug e configurazioni
 cp certs/ca/ca.crt certs/server/ca.crt
 
 
 # ------------------------------------------------------------
 # 3. CERTIFICATO SERVER MONGODB
 # ------------------------------------------------------------
-
 # Certificato usato da MongoDB per accettare connessioni TLS.
 # Deve avere nomi coerenti con quelli usati nel docker-compose:
 # - db_primary: nome del container
@@ -114,14 +95,7 @@ openssl x509 -req -days 365 -sha256 \
 # MongoDB richiede un file PEM contenente certificato e chiave privata insieme.
 cat certs/mongodb/mongodb.crt certs/mongodb/mongodb.key > certs/mongodb/mongodb.pem
 
-# Prima di copiare la CA, controllo di nuovo che ca.crt non sia una cartella.
-# Questo evita il problema: certs/mongodb/ca.crt/ca.crt.
-if [ -d certs/mongodb/ca.crt ]; then
-  echo "ATTENZIONE: certs/mongodb/ca.crt è una cartella. La elimino."
-  rm -rf certs/mongodb/ca.crt
-fi
-
-# Copio la CA nella cartella MongoDB come file.
+# Copio la CA nella cartella MongoDB, così il container può usarla facilmente.
 cp certs/ca/ca.crt certs/mongodb/ca.crt
 
 rm -f certs/mongodb/mongodb.csr certs/mongodb/mongodb.ext
@@ -130,14 +104,12 @@ rm -f certs/mongodb/mongodb.csr certs/mongodb/mongodb.ext
 # ------------------------------------------------------------
 # 4. FUNZIONE GENERAZIONE CERTIFICATI CLIENT UTENTE
 # ------------------------------------------------------------
-
 # Ogni certificato client rappresenta l'identità dell'utente.
-# Il CN viene usato per identificare l'utente.
-# L'OU contiene il device associato nella simulazione.
+# Il CN viene usato per identificare l'utente, mentre l'OU contiene il device associato.
 generate_client() {
-    local FOLDER=$1
-    local CN=$2
-    local OU=$3
+    local FOLDER=$1   # Cartella: deve combaciare con il docker-compose
+    local CN=$2       # Common Name: identità utente
+    local OU=$3       # Organizational Unit: device ID
 
     echo "Generazione certificato client: CN=$CN, OU=$OU, cartella=$FOLDER"
 
@@ -155,7 +127,7 @@ generate_client() {
 
     rm -f certs/clients/$FOLDER/client.csr
 
-    # Copio la CA in ogni cartella client, utile per curl, debug e test mTLS.
+    # Copia la CA in ogni cartella client, utile per curl, debug e test mTLS.
     cp certs/ca/ca.crt certs/clients/$FOLDER/ca.crt
 }
 
@@ -163,7 +135,6 @@ generate_client() {
 # ------------------------------------------------------------
 # 5. GENERAZIONE CERTIFICATI CLIENT UTENTE
 # ------------------------------------------------------------
-
 generate_client "operatore_ancona" "Marco Rossi"    "D-001"
 generate_client "capitano_claudia" "Elena Bianchi"  "D-002"
 generate_client "soc_admin"        "Admin SOC"      "D-SOC"
@@ -173,7 +144,6 @@ generate_client "intruso"          "hacker_esterno" "Sconosciuto"
 # ------------------------------------------------------------
 # 6. FUNZIONE GENERAZIONE CERTIFICATI DISPOSITIVO
 # ------------------------------------------------------------
-
 # Ogni certificato device rappresenta l'identità del dispositivo.
 # Il CN contiene l'identificativo del dispositivo, per esempio D-001.
 generate_device() {
@@ -197,7 +167,7 @@ generate_device() {
 
     rm -f certs/devices/$FOLDER/device.csr
 
-    # Copio la CA anche nella cartella del dispositivo.
+    # Copia la CA anche nella cartella del dispositivo.
     cp certs/ca/ca.crt certs/devices/$FOLDER/ca.crt
 }
 
@@ -205,7 +175,6 @@ generate_device() {
 # ------------------------------------------------------------
 # 7. GENERAZIONE CERTIFICATI DISPOSITIVO
 # ------------------------------------------------------------
-
 generate_device "D-001" "D-001" "Terminal-Ancona"
 generate_device "D-002" "D-002" "Ponte-Comando"
 generate_device "D-SOC" "D-SOC" "SOC-Center"
@@ -214,9 +183,7 @@ generate_device "D-SOC" "D-SOC" "SOC-Center"
 # ------------------------------------------------------------
 # 8. PULIZIA FINALE
 # ------------------------------------------------------------
-
 rm -f certs/ca/ca.srl
 
 echo "Certificati generati correttamente."
-echo "Certificato MongoDB creato in: certs/mongodb/mongodb.pem"
-echo "CA MongoDB copiata correttamente in: certs/mongodb/ca.crt"
+echo "Certificato MongoDB creato in: certs/mongodb/mongodb.pem"git stash push -u -m "modifiche locali RBAC risorse e OPA"

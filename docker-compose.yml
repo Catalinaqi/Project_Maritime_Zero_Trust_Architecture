@@ -30,7 +30,6 @@ services:
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
       - mongo_audit_logs:/var/log/mongodb
-      #risk_score e file .json
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data/risk_data:/opa_data
 
@@ -67,9 +66,6 @@ services:
     networks:
       backend_net:
         ipv4_address: 172.20.3.5
-
-    # MongoDB non viene esposto fuori dall'host.
-    # Deve essere raggiunto solo da api_backend sulla rete backend_net.
 
     volumes:
       - mongo_data:/data/db
@@ -119,14 +115,6 @@ services:
   # ============================================================================
   # LAYER 4: API BACKEND - MongoDB Data Access
   # ============================================================================
-  # Questo backend espone endpoint HTTP tipo:
-  # GET /utenti
-  # GET /risorse
-  # GET /dispositivi
-  # GET /all
-  #
-  # Envoy inoltra qui le richieste autorizzate da OPA.
-  # api_backend poi legge i dati da MongoDB.
 
   api_backend:
     build:
@@ -139,11 +127,11 @@ services:
     networks:
       backend_net:
         ipv4_address: 172.20.3.20
+
     volumes:
       - ./certs/mongodb/ca.crt:/certs/mongodb/ca.crt:ro
 
     environment:
-
       - PORT=3000
       - MONGO_HOST=${MONGO_HOST}
       - MONGO_PORT=${MONGO_PORT}
@@ -151,13 +139,12 @@ services:
       - MONGO_ROOT_USER=${MONGO_ROOT_USER}
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_TLS_CA_FILE=${MONGO_TLS_CA_FILE}
+
     depends_on:
       db_primary:
         condition: service_healthy
 
     logging:
-
-
       driver: "json-file"
       options:
         max-size: "10m"
@@ -177,25 +164,20 @@ services:
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.6
-
       monitoring_net:
         ipv4_address: 172.20.4.6
-
       corporate_net:
         ipv4_address: 172.20.10.6
-
       vpn_net:
         ipv4_address: 172.20.11.6
-
       satellite_net:
         ipv4_address: 172.20.12.6
-
       public_net:
         ipv4_address: 172.20.13.6
 
     ports:
-      - "8181:8181"     # Porta REST (per management/ispezione)
-      - "9191:9191"     # Porta gRPC (per Envoy)
+      - "8181:8181"
+      - "9191:9191"
 
     volumes:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
@@ -221,14 +203,6 @@ services:
       - "--log-format=json"
       - "/policies"
 
-    # 2. Modificato in wget per compatibilità nativa
-    #healthcheck:
-    #  test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
-    #  interval: 10s
-    #  timeout: 5s
-    #  retries: 5
-    #  start_period: 15s
-
     depends_on:
       siem_central:
         condition: service_started
@@ -238,7 +212,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
 
   # ============================================================================
   # LAYER 2: ENFORCEMENT - Envoy Proxy PEP
@@ -255,22 +228,15 @@ services:
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.7
-
       backend_net:
         ipv4_address: 172.20.3.7
-      #clients_net:
-      #  ipv4_address: 172.20.5.7
-
-      corporate_net:       # soc_admin
+      corporate_net:
         ipv4_address: 172.20.10.7
-
-      vpn_net:              # operatore_ancona
+      vpn_net:
         ipv4_address: 172.20.11.7
-
-      satellite_net:       # capitano
+      satellite_net:
         ipv4_address: 172.20.12.7
-
-      public_net:          # intruso
+      public_net:
         ipv4_address: 172.20.13.7
 
     ports:
@@ -319,25 +285,19 @@ services:
     restart: unless-stopped
 
     networks:
-      #clients_net:
-      #  ipv4_address: 172.20.5.10
       zerotrust_net:
         ipv4_address: 172.20.2.10
       backend_net:
         ipv4_address: 172.20.3.10
       monitoring_net:
         ipv4_address: 172.20.4.10
-
-      corporate_net:       # soc_admin
+      corporate_net:
         ipv4_address: 172.20.10.10
-
-      vpn_net:              # operatore_ancona
+      vpn_net:
         ipv4_address: 172.20.11.10
-
-      satellite_net:       # capitano
+      satellite_net:
         ipv4_address: 172.20.12.10
-
-      public_net:          # intruso
+      public_net:
         ipv4_address: 172.20.13.10
 
     cap_add:
@@ -396,9 +356,11 @@ services:
 
     user: root # add
     privileged: true
+
     cap_add:
       - NET_ADMIN
       - NET_RAW
+
     security_opt:
       - apparmor:unconfined
 
@@ -434,16 +396,249 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-  # ============================================================================
-  # TESTING CLIENTS
-  # ============================================================================
-  # Client coerenti con gli utenti MongoDB:
-  # - operatore_ancona
-  # - capitano_claudia
-  # - soc_admin
-  # - intruso per test negativo
 
-  #  Ogni client è connesso alla propria rete
+  # ============================================================================
+  # LAYER 0: DEVICE HARDWARE IDENTITY - SWTPM
+  # ============================================================================
+  # Ogni container SWTPM rappresenta il TPM emulato di un dispositivo.
+  # Il TPM appartiene al device, non all'utente.
+
+  swtpm_d001:
+    build:
+      context: ./services/swtpm
+      dockerfile: Dockerfile
+    container_name: swtpm_d001
+    hostname: swtpm-d001
+    restart: unless-stopped
+
+    networks:
+      vpn_net:
+        ipv4_address: 172.20.11.30
+
+    volumes:
+      - swtpm_d001_state:/var/lib/swtpm
+
+    environment:
+      - TPM_STATE_DIR=/var/lib/swtpm
+      - TPM_SERVER_PORT=2321
+      - TPM_CTRL_PORT=2322
+
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  swtpm_d002:
+    build:
+      context: ./services/swtpm
+      dockerfile: Dockerfile
+    container_name: swtpm_d002
+    hostname: swtpm-d002
+    restart: unless-stopped
+
+    networks:
+      satellite_net:
+        ipv4_address: 172.20.12.30
+
+    volumes:
+      - swtpm_d002_state:/var/lib/swtpm
+
+    environment:
+      - TPM_STATE_DIR=/var/lib/swtpm
+      - TPM_SERVER_PORT=2321
+      - TPM_CTRL_PORT=2322
+
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  swtpm_dsoc:
+    build:
+      context: ./services/swtpm
+      dockerfile: Dockerfile
+    container_name: swtpm_dsoc
+    hostname: swtpm-dsoc
+    restart: unless-stopped
+
+    networks:
+      corporate_net:
+        ipv4_address: 172.20.10.30
+
+    volumes:
+      - swtpm_dsoc_state:/var/lib/swtpm
+
+    environment:
+      - TPM_STATE_DIR=/var/lib/swtpm
+      - TPM_SERVER_PORT=2321
+      - TPM_CTRL_PORT=2322
+
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ============================================================================
+  # TESTING CLIENTS TPM-BACKED
+  # ============================================================================
+  # Questi container rappresentano dispositivi con TPM.
+  # L'utente applicativo viene passato con USER_ID e può cambiare nei test.
+
+  client_d001_tpm:
+    build:
+      context: ./services/clients_tpm
+      dockerfile: Dockerfile
+    container_name: client_d001_tpm
+    hostname: client-d001-tpm
+    restart: "no"
+
+    networks:
+      vpn_net:
+        ipv4_address: 172.20.11.31
+
+    volumes:
+      - ./certs/devices/D-001:/certs/device
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./certs/ca/ca.key:/ca/ca.key:ro
+      - tpm_d001_client_state:/tpm
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DEVICE_ID=D-001
+      - DEVICE_LOCATION=Terminal-Ancona
+      - USER_ID=operatore_ancona
+      - CLIENT_CERT=/certs/device/device.crt
+      - CA_CERT=/ca/ca.crt
+      - TPM_HANDLE=0x81000001
+      - TPM2TOOLS_TCTI=swtpm:host=swtpm_d001,port=2321
+      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d001,port=2321
+      - OPENSSL_MODULES=/usr/local/lib/ossl-modules
+
+    depends_on:
+      swtpm_d001:
+        condition: service_started
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_d002_tpm:
+    build:
+      context: ./services/clients_tpm
+      dockerfile: Dockerfile
+    container_name: client_d002_tpm
+    hostname: client-d002-tpm
+    restart: "no"
+
+    networks:
+      satellite_net:
+        ipv4_address: 172.20.12.31
+
+    volumes:
+      - ./certs/devices/D-002:/certs/device
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./certs/ca/ca.key:/ca/ca.key:ro
+      - tpm_d002_client_state:/tpm
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DEVICE_ID=D-002
+      - DEVICE_LOCATION=Ponte-Comando
+      - USER_ID=capitano_claudia
+      - CLIENT_CERT=/certs/device/device.crt
+      - CA_CERT=/ca/ca.crt
+      - TPM_HANDLE=0x81000002
+      - TPM2TOOLS_TCTI=swtpm:host=swtpm_d002,port=2321
+      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d002,port=2321
+      - OPENSSL_MODULES=/usr/local/lib/ossl-modules
+
+    depends_on:
+      swtpm_d002:
+        condition: service_started
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_dsoc_tpm:
+    build:
+      context: ./services/clients_tpm
+      dockerfile: Dockerfile
+    container_name: client_dsoc_tpm
+    hostname: client-dsoc-tpm
+    restart: "no"
+
+    networks:
+      corporate_net:
+        ipv4_address: 172.20.10.31
+
+    volumes:
+      - ./certs/devices/D-SOC:/certs/device
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./certs/ca/ca.key:/ca/ca.key:ro
+      - tpm_dsoc_client_state:/tpm
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DEVICE_ID=D-SOC
+      - DEVICE_LOCATION=SOC-Center
+      - USER_ID=soc_admin
+      - CLIENT_CERT=/certs/device/device.crt
+      - CA_CERT=/ca/ca.crt
+      - TPM_HANDLE=0x81000003
+      - TPM2TOOLS_TCTI=swtpm:host=swtpm_dsoc,port=2321
+      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_dsoc,port=2321
+      - OPENSSL_MODULES=/usr/local/lib/ossl-modules
+
+    depends_on:
+      swtpm_dsoc:
+        condition: service_started
+      pep_gateway:
+        condition: service_started
+
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ============================================================================
+  # TESTING CLIENTS LEGACY
+  # ============================================================================
+  # Questi client usano ancora device.key su file.
+  # Dopo il provisioning TPM-backed dei certificati, per i test finali usare i client *_tpm.
 
   client_operatore_ancona:
     build:
@@ -469,19 +664,11 @@ services:
       - ENVOY_HOST=pep_gateway
       - ENVOY_PORT=8443
       - DB_NAME=maritime_zta
-
-      # Dati descrittivi del client simulato
       - CLIENT_NAME=operatore_ancona
       - CLIENT_ROLE=ruolo_banchina
-
-      # IMPORTANTE: ora il certificato mTLS è quello del dispositivo
       - CLIENT_CERT=/certs/device/device.crt
       - CLIENT_KEY=/certs/device/device.key
-
-      # Identità applicativa dell’utente che sta usando il dispositivo
       - USER_ID=operatore_ancona
-
-      # CA usata per verificare il certificato server di Envoy
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -514,13 +701,8 @@ services:
         ipv4_address: 172.20.12.21
 
     volumes:
-      # Certificato del dispositivo usato per la connessione mTLS verso Envoy
       - ./certs/devices/D-002:/certs/device:ro
-
-      # CA usata per verificare Envoy
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
-
-      # Script di test del client
       - ./services/clients/scripts:/scripts:ro
 
     environment:
@@ -529,14 +711,9 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=capitano_claudia
       - CLIENT_ROLE=ruolo_equipaggio
-
-      # mTLS = certificato dispositivo
       - CLIENT_CERT=/certs/device/device.crt
       - CLIENT_KEY=/certs/device/device.key
-
-      # utente applicativo
       - USER_ID=capitano_claudia
-
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -579,14 +756,9 @@ services:
       - DB_NAME=maritime_zta
       - CLIENT_NAME=soc_admin
       - CLIENT_ROLE=ruolo_gestione_flotta
-
-      # mTLS = certificato dispositivo
       - CLIENT_CERT=/certs/device/device.crt
       - CLIENT_KEY=/certs/device/device.key
-
-      # utente applicativo
       - USER_ID=soc_admin
-
       - CA_CERT=/ca/ca.crt
 
     depends_on:
@@ -653,7 +825,6 @@ services:
 # ==============================================================================
 
 networks:
-  # Rete aziendale — alta fiducia
   corporate_net:
     driver: bridge
     name: maritime-zta_corporate
@@ -661,7 +832,6 @@ networks:
       config:
         - subnet: 172.20.10.0/24
 
-  # Rete VPN — media fiducia
   vpn_net:
     driver: bridge
     name: maritime-zta_vpn
@@ -669,7 +839,6 @@ networks:
       config:
         - subnet: 172.20.11.0/24
 
-  # Rete satellitare — media fiducia
   satellite_net:
     driver: bridge
     name: maritime-zta_satellite
@@ -677,22 +846,12 @@ networks:
       config:
         - subnet: 172.20.12.0/24
 
-  # Rete pubblica — bassa fiducia
   public_net:
     driver: bridge
     name: maritime-zta_public
     ipam:
       config:
         - subnet: 172.20.13.0/24
-
-    # reti
-
-  #clients_net:
-  #  driver: bridge
-  #  name: maritime-zta_clients
-  #  ipam:
-  #    config:
-  #      - subnet: ${NETWORK_CLIENTS_SUBNET:-172.20.5.0/24}
 
   zerotrust_net:
     driver: bridge
@@ -715,8 +874,6 @@ networks:
     ipam:
       config:
         - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
-
-
 
 # ==============================================================================
 # VOLUMES
@@ -755,3 +912,26 @@ volumes:
     name: maritime-zta_snort_logs
     driver: local
 
+  swtpm_d001_state:
+    name: maritime-zta_swtpm_d001_state
+    driver: local
+
+  swtpm_d002_state:
+    name: maritime-zta_swtpm_d002_state
+    driver: local
+
+  swtpm_dsoc_state:
+    name: maritime-zta_swtpm_dsoc_state
+    driver: local
+
+  tpm_d001_client_state:
+    name: maritime-zta_tpm_d001_client_state
+    driver: local
+
+  tpm_d002_client_state:
+    name: maritime-zta_tpm_d002_client_state
+    driver: local
+
+  tpm_dsoc_client_state:
+    name: maritime-zta_tpm_dsoc_client_state
+    driver: local
