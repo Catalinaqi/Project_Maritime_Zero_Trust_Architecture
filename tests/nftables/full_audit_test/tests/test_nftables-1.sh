@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # MARITIME ZTA - TEST NFTABLES FIREWALL
-# Ejecutar desde el host: bash test_nftables.sh
+# Ejecutar desde el host: bash test_nftables-1.sh
 # Prerequisito: docker compose --profile testing up -d
 # =============================================================================
 # Escenarios:
