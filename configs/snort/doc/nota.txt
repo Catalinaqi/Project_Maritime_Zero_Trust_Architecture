@@ -1,0 +1,157 @@
+
+---
+
+# 🛡️ Arquitectura y Flujo de Vida del IDS (Snort 3)
+
+> 💡 **Para entender cómo interactúan los componentes:**
+> Imagina que estamos equipando y enviando a un soldado a una misión de vigilancia crítica dentro de nuestra arquitectura *Zero Trust*.
+
+La configuración se divide en **6 archivos clave**, cada uno con un rol específico y actuando en una fase distinta del tiempo:
+
+---
+
+## 🏢 Fase 0: Orquestación y Logística *(Pre-Despliegue)*
+
+### 1. El archivo `.env` *(El Cuartel General / La Fuente de la Verdad)*
+
+* **¿Qué es?** Es un archivo de texto simple, pero es el corazón de las configuraciones.
+* **¿Qué hace?** Es el único lugar (*Single Source of Truth*) donde definimos los datos reales y sensibles: subredes, contraseñas, tokens de Splunk y puertos. Si mañana cambia la IP de la base de datos, se cambia solo aquí.
+
+### 2. El `docker-compose.yml` *(El Director de Orquesta / La Logística)*
+
+* **¿Qué es?** El manifiesto YAML que orquesta todos los contenedores.
+* **¿Qué hace?** Actúa de puente. Lee los valores del `.env`, crea las redes virtuales aisladas (`vpn_net`, `backend_net`), conecta los volúmenes para que Snort y Splunk compartan logs, e inyecta las variables de entorno en el contenedor.
+
+---
+
+## 🛠️ Fase 1: Tiempo de Construcción *(Build Time)*
+
+### 3. El `Dockerfile` *(La Fábrica / El Entrenamiento)*
+
+* **¿Qué es?** La receta estática de infraestructura.
+* **¿Qué hace?** Descarga el código fuente de Snort, lo compila, instala herramientas clave (`tcpdump`, `envsubst`) y prepara al usuario restringido.
+* **¿Cuándo actúa?** Solo una vez, al ejecutar `docker compose build`. Crea la "Imagen" estática. Aquí Snort existe, pero aún no sabe en qué redes operará ni qué reglas usará.
+
+---
+
+## 🚀 Fase 2: Tiempo de Ejecución e Inicialización *(Runtime)*
+
+### 4. El `entrypoint.sh` *(El Comandante de Misión)*
+
+* **¿Qué es?** El script de inicialización y seguridad (*Fail-Secure*).
+* **¿Qué hace?** Es lo primero que despierta al levantar el contenedor. Su trabajo es:
+* Tomar el archivo `.lua.template` e inyectarle dinámicamente las IPs del `.env` usando `envsubst`.
+* Hacer un simulacro/validación de seguridad (`snort -T`) para detectar errores de sintaxis.
+* Si todo está perfecto, dar la orden final de arranque a Snort.
+
+
+
+---
+
+## 🧠 Fase 3: Tiempo de Operación *(Operation Time)*
+
+### 5. El `snort-zta.lua` *(El Cerebro / El Manual de Operaciones)*
+
+* **¿Qué es?** El archivo de configuración global.
+* **¿Qué hace?** Le dice a Snort cómo comportarse. Le indica: *"Escucha en todas las interfaces"*, *"Escribe las alertas en formato JSON"*, *"Esta es la red VPN"*, y por último, lo dirige al archivo de reglas.
+
+### 6. El `snort-zta.rules` *(El Catálogo de Amenazas / Las Firmas)*
+
+* **¿Qué es?** Nuestra base de conocimientos de ciberseguridad.
+* **¿Qué hace?** Es la lista exhaustiva de patrones maliciosos. Le dice a Snort: *"Si ves la palabra 'UNION SELECT' intentando evadir el puerto 8443, dispara una alerta y llámala `[ZTA-015]`"*.
+
+---
+
+## 🔄 El Flujo de Vida Completo *(Cronología del Ecosistema)*
+
+Este es el viaje exacto, paso a paso, desde que un dato de configuración nace hasta que una amenaza es bloqueada:
+
+1. **El Comando Inicial:** Ejecutas `docker compose up -d` en la terminal.
+2. **La Logística:** El `docker-compose.yml` lee el `.env` (ej. `NETWORK_BACKEND_SUBNET`) y lo inyecta en el contenedor de Snort como la variable `ZTA_BACKEND_NET`.
+3. **El Despertar:** El contenedor arranca basado en la imagen del `Dockerfile` y pasa el control inmediatamente al `entrypoint.sh`.
+4. **La Inyección y Seguridad:** El `entrypoint.sh` lee la variable `ZTA_BACKEND_NET`, reemplaza los valores en el archivo de configuración para crear el `snort-zta.lua` definitivo, y ejecuta un test de validación para evitar fallos en producción.
+5. **El Cerebro Activo:** Snort arranca leyendo el `snort-zta.lua` (que ahora tiene las IPs reales inyectadas) y carga su armamento desde `snort-zta.rules`.
+6. **La Acción (Detección y Respuesta):** Snort intercepta tráfico anómalo. Si hace match con una regla, genera un log JSON estructurado, lo deposita en el volumen compartido, y Splunk lo ingiere en tiempo real para actualizar el nivel de riesgo en OPA.
+
+
+-----
+
+Docker -> interfaz fictisia no real (red fisica), tecnicamente usa un pseudo 
+          header SLL (Linux cooked capture) para capturar el tráfico en modo promiscuo, 
+          lo que le permite ver todo el tráfico que pasa por la interfaz virtual, 
+          incluso si no está destinado a esa interfaz.
+          Esto es crucial para un IDS como Snort, ya que necesita analizar 
+          todo el tráfico de red para detectar posibles amenazas.
+
+Snort -> interfaz
+
+File lua: pcap -> afpacket
+Snort no tiene codec para SLL → "No codec for DAQ base protocol" → crash
+
+-----
+
+Docker -> data link type 113 (Linux cooked/SLL)
+
+El módulo afpacket no soporta el uso de la interfaz virtual any. 
+Intentar escuchar en any con afpacket resultará en un error inmediato de 
+inicialización del DAQ porque afpacket necesita vincularse a un socket físico o virtual de capa 2 específico.
+
+-----
+dockerfile
+
+jq: Es un procesador de JSON para la terminal. Snort genera alertas en formato JSON crudo (una sola línea larga por alerta), 
+lo cual es casi ilegible para los humanos. jq las formatea, indenta y colorea para que puedas leerlas en tiempo real (ej. tail -f alert_json.txt | jq).
+
+ethtool: Herramienta para controlar los controladores y el hardware de las tarjetas de red. En entornos Dockerizados, se utiliza para apagar 
+el "Offloading" (LRO/GRO), una función del sistema operativo que agrupa varios paquetes en uno gigante y rompe la inspección profunda de paquetes (DPI) de Snort.
+
+curl: Herramienta de línea de comandos para transferir datos por red (HTTP, HTTPS, FTP, etc.). Será tu simulador principal de ataques de Capa 7; 
+lo usarás para lanzar peticiones web maliciosas contra tu API_PORT y verificar que las firmas de Snort las detectan.
+
+iputils-ping: Instala el clásico binario ping. Es indispensable para pruebas básicas de conectividad de Capa 3 y para disparar o 
+probar reglas de Snort muy simples orientadas a bloquear o alertar sobre tráfico ICMP.
+
+------
+docker exec -it ids_network_monitor bash
+ip -o link show
+
+docker compose --profile testing up -d client_intruso client_operatore_ancona client_soc_admin
+
+docker exec -it client_intruso bash
+ip -o link show
+
+docker exec -it client_operatore_ancona bash
+ip -o link show
+
+docker exec -it client_soc_admin bash
+ip -o link show
+
+docker exec -it client_capitano_claudia bash
+ip -o link show
+
+
+Al ejecutar ip -o link show has descubierto la topología de red real que Docker Compose ha construido bajo el capó para tu Arquitectura Zero Trust (ZTA).
+
+Aquí tienes la explicación directa de lo que estás viendo y cómo se conectan los puntos.
+
+1. El IDS es el "Pulpo" de la Red
+   Mientras que tus clientes (el intruso, el operador, la capitana) tienen solo una interfaz (eth0), tu contenedor ids_network_monitor tiene siete interfaces 
+  (eth0 a eth6).
+
+En Docker, cada vez que conectas un contenedor a una red definida en tu docker-compose.yml, Docker le crea una interfaz virtual. 
+Esto significa que tu IDS está conectado simultáneamente a 7 redes distintas para poder vigilar todos los segmentos de tu ZTA 
+(Public, VPN, Satellite, Corporate, etc.).
+
+2. El Secreto está en la Dirección MAC
+   ¿Cómo supiste que eth2 era la red correcta donde estaba el intruso? El secreto para mapear redes de Docker está en las direcciones MAC que 
+  descubriste. Docker genera las direcciones MAC basándose en el segmento de red IP.
+
+Si te fijas en los últimos tres bloques de las MACs que capturaste, podemos mapear exactamente qué interfaz del IDS vigila a qué contenedor:
+### Tabla de Direccionamiento y Segmentación ZTA
+
+| Interfaz del IDS | Prefijo MAC compartido | Contenedor Cliente Conectado | Red ZTA Probable |
+| :--- | :--- | :--- | :--- |
+| eth0 | ac:14:0a | client_soc_admin | Red de Administración |
+| eth4 | ac:14:0b | client_operatore_ancona | Red Corporativa |
+| eth3 | ac:14:0c | client_capitano_claudia | Red Satelital (Buque) |
+| eth2 | ac:14:0d | client_intruso | Red Pública |

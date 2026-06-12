@@ -1,0 +1,14 @@
+=======================================================================
+ MARITIME ZTA - REPORTE DE EJECUCIÓN DE SNORT RULES
+ Fecha de ejecución: 2026-06-12 14:13:01
+=======================================================================
+
+--- INICIANDO BATERÍA DE ATAQUES ZTA ---
+[✔ DETECTADO] ICMP Ping en public_net - Detectado a las 14:13:07
+[✘ MITIGADO/BLOQUEADO] Insider Threat: SQLi UNION SELECT (HTTPS -> Backend) - Frenado antes de llegar a Snort
+[✘ MITIGADO/BLOQUEADO] Bypass a MongoDB (Será dropeado por Nftables) - Frenado antes de llegar a Snort
+[✔ DETECTADO] OPA Policy Tampering - Detectado a las 14:13:26
+[✘ MITIGADO/BLOQUEADO] Insider Threat: Inyección OS (HTTPS -> Backend) - Frenado antes de llegar a Snort
+
+--- RESULTADOS Y MONITOREO DEL SISTEMA ---
+=======================================================================

@@ -2,7 +2,6 @@
 
 # =============================================================================
 # MARITIME ZTA - NFTABLES FIREWALL RULES (TEMPLATE)
-# Render: envsubst < rules.nft.tpl | nft -f -
 # Variables resueltas desde docker-compose environment:
 #   ENVOY_IP      = pep_gateway
 #   OPA_IP        = pdp_engine

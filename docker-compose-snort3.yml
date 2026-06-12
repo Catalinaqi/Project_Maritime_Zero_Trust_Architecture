@@ -34,7 +34,7 @@ services:
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data/risk_data:/opa_data
       # nftables
-      - nftables_logs:/var/log/nftables
+      #- nftables_logs:/var/log/nftables
       # snort
       - snort_logs:/var/log/snort:ro
 
@@ -339,7 +339,9 @@ services:
         ipv4_address: 172.20.13.10
     cap_add:
       - NET_ADMIN
-
+      # problema:los contenedores Docker modernos restringen el acceso al buffer del kernel (dmesg)
+      # solucion: logs del firewall dejan de llegar a Splunk, es muy probable que necesites agregar la capacidad de sistema SYSLOG
+      #- SYSLOG
     volumes:
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
       - nftables_logs:/var/log/nftables
@@ -375,7 +377,7 @@ services:
 
     # Translates the $$SNORT_IFACE variable via bash. Pre-creates the alert_json.txt file
     # with open read permissions (chmod 644) for SIEM ingestion, and starts Snort in IDS mode.
-    command: /bin/bash -c "touch /var/log/snort/alert_json.txt && chmod 644 /var/log/snort/alert_json.txt && snort -c /etc/snort/snort-mvp.lua -i \"$$SNORT_IFACE\" -l /var/log/snort -u snort -g snort -k none"
+    #command: /bin/bash -c "touch /var/log/snort/alert_json.txt && chmod 644 /var/log/snort/alert_json.txt && snort -c /etc/snort/snort-mvp.lua -i \"$$SNORT_IFACE\" -l /var/log/snort -u snort -g snort -k none"
 
     # --- SECURITY & ZERO TRUST ---
     privileged: false # Security Best Practice: Avoid granting full root privileges to the container.
@@ -408,14 +410,62 @@ services:
     volumes:
       # Mapping files from your host (PC) to the container as read-only (ro) for security.
       # Updated paths reflecting the new flat structure in the /configs/snort directory.
-      - ./configs/snort/snort-mvp.lua:/etc/snort/snort-mvp.lua:ro
-      - ./configs/snort/zta-mvp.rules:/etc/snort/zta-mvp.rules:ro
+      - ./configs/snort/snort-zta.lua:/etc/snort/snort-zta.lua:ro
+      - ./configs/snort/snort-zta.rules:/etc/snort/snort-zta.rules:ro
+      - ./services/snort/entrypoint.sh:/scripts/entrypoint.sh:ro
       - snort_logs:/var/log/snort # Save logs in a Docker-managed volume.
 
     # --- ENVIRONMENT VARIABLES ---
     environment:
-      - SNORT_IFACE=${SNORT_IFACE} # Pass the interface.
-      - TZ=${TZ} # Synchronize the container's timezone.
+      # Timezone for accurate log timestamps (crucial for SIEM correlation)
+      - TZ=${TZ}
+
+      # ==========================================================
+      # NETWORK TOPOLOGY VARIABLES (CIDRs)
+      # Injected into snort-zta.lua to define the network perimeters
+      # ==========================================================
+      # Aggregated CIDR list of all internal/trusted networks
+      #- ZTA_HOME_NET=${SNORT_HOME_NET}
+      - ZTA_HOME_NET=[172.20.2.0/24,172.20.3.0/24,172.20.4.0/24,172.20.10.0/24,172.20.11.0/24,172.20.12.0/24,172.20.13.0/24]
+      # Untrusted external network (simulated public internet)
+      - ZTA_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET}
+      # Segment for authorized remote operators (dock workers)
+      - ZTA_VPN_NET=${NETWORK_VPN_SUBNET}
+      # Segment for fleet/ship communication (captains)
+      - ZTA_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET}
+      # SOC and internal IT management network
+      - ZTA_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET}
+      # Highly restricted backend network (API + MongoDB)
+      - ZTA_BACKEND_NET=${NETWORK_BACKEND_SUBNET}
+
+      ################
+      - ZTA_SNORT_INTERFACES=${ZTA_SNORT_INTERFACES}
+
+
+      # ==========================================================
+      # CRITICAL PORT DEFINITIONS
+      # Used by Snort rules to detect protocol and bypass anomalies
+      # ==========================================================
+
+      # Envoy mTLS entry point (The only legitimate ZTA ingress port)
+      - ZTA_PEP_PORT=${SNORT_PORT_PEP}
+      # OPA Policy Decision Point ports (REST API & gRPC ext_authz)
+      - ZTA_OPA_PORTS=${SNORT_PORT_OPA}
+      # MongoDB Wire Protocol port
+      - ZTA_MONGO_PORT=${SNORT_PORT_MONGO}
+      # Internal Node.js API backend port
+      - ZTA_API_PORT=${SNORT_PORT_API}
+      # Splunk Web UI and HTTP Event Collector (HEC) ports
+      - ZTA_SIEM_PORTS=${SNORT_PORT_SIEM}
+      # Envoy Admin interface (should be strictly blocked from outside)
+      - ZTA_ADMIN_PORT=${SNORT_PORT_ADMIN}
+
+    # [DevOps & Debugging] Sobrescribe el CMD del Dockerfile.
+    # Ejecuta el script de validación y arranque por defecto.
+    # TRUCO: Si Snort falla y el contenedor se reinicia en bucle, cambia esto a:
+    # command: tail -f /dev/null
+    # Esto mantendrá el contenedor vivo y te permitirá entrar (docker exec) para investigar.
+    #command: /scripts/entrypoint.sh
 
     # --- ORCHESTRATION ---
     depends_on:
@@ -436,6 +486,8 @@ services:
       options:
         max-size: "10m" # Prevent terminal logs from consuming all disk space (Max 10 MB).
         max-file: "3"   # Keep a maximum of 3 old log files.
+
+
   # ============================================================================
   # TESTING CLIENTS
   # ============================================================================

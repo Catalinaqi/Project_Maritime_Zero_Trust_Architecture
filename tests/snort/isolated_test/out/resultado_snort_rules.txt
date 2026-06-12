@@ -1,0 +1,15 @@
+=======================================================================
+ MARITIME ZTA - REPORTE DE EJECUCIÓN DE SNORT RULES (NORTE-SUR)
+ Fecha de ejecución: 2026-06-12 14:06:18
+=======================================================================
+
+--- INICIANDO BATERÍA DE ATAQUES DESDE 'client_intruso' ---
+[✔ DETECTADO] ICMP Ping en public_net (SID: 999901) - Detectado a las 14:06:24
+[✘ FALLO] SQLi UNION SELECT (HTTPS 8443 -> Backend 3000) (SID: 999903) - Snort ciego ante este evento
+[✘ FALLO] Bypass a MongoDB (TCP SYN) (SID: 999904) - Snort ciego ante este evento
+[✘ FALLO] OPA Policy Tampering en public_net (SID: 1000032) - Snort ciego ante este evento
+[✘ FALLO] Inyección de Comandos OS (HTTPS 8443) (SID: 1000019) - Snort ciego ante este evento
+
+--- RESULTADOS Y MONITOREO DEL SISTEMA ---
+=======================================================================
+ FIN DEL REPORTE

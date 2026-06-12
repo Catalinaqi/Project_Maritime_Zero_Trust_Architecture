@@ -1,0 +1,15 @@
+=======================================================================
+ MARITIME ZTA - REPORTE DE FUERZA BRUTA Y RECONOCIMIENTO
+ Fecha de ejecución: 2026-06-12 14:04:12
+=======================================================================
+
+--- FASE 1: RECONOCIMIENTO (CAT 1) ---
+[✘ FALLO] SYN Flood simulado a Envoy (Requiere 100 hits) (SID: 1000004) - Snort ciego ante este evento
+
+--- FASE 2: FUERZA BRUTA (CAT 7) ---
+[✘ FALLO] Fuerza Bruta SSH a Envoy (SID: 1000029) - Snort ciego ante este evento
+[✘ FALLO] Fuerza Bruta API de OPA (SID: 1000031) - Snort ciego ante este evento
+
+--- REPORTE GENERADO ---
+=======================================================================
+ FIN DEL REPORTE

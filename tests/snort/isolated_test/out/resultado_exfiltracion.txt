@@ -1,0 +1,16 @@
+=======================================================================
+ MARITIME ZTA - REPORTE DE EXFILTRACIÓN Y CRIPTOGRAFÍA
+ Fecha de ejecución: 2026-06-12 14:05:00
+=======================================================================
+
+--- FASE 1: ANOMALÍAS EN CANAL SEGURO mTLS (CAT 3) ---
+[✘ FALLO] Violación Política: Petición HTTP plana en puerto mTLS (GET) (SID: 1000011) - Snort ciego ante este evento
+[✘ FALLO] Violación Política: Petición HTTP plana en puerto mTLS (POST) (SID: 1000012) - Snort ciego ante este evento
+[✘ FALLO] Degradación criptográfica (TLS 1.0 Downgrade) (SID: 1000013) - Snort ciego ante este evento
+
+--- FASE 2: EXFILTRACIÓN DE DATOS (CAT 5) ---
+[✘ FALLO] Exfiltración: Tráfico de Mongo Wire hacia IP externa simulada (SID: 1000020) - Snort ciego ante este evento
+
+--- REPORTE GENERADO ---
+=======================================================================
+ FIN DEL REPORTE

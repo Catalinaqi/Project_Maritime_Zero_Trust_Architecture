@@ -25,6 +25,10 @@ certs/*
 # But DO NOT ignore the README file in that folder
 !certs/CONFIG_CERTS.md
 
+# ignore bug cleaned
+#certs/server/server.crt
+#certs/server/server.key
+
 # ====================
 
 # DOCKER / RUNTIME DATA
@@ -142,7 +146,10 @@ test-reports/
 *.test.log
 
 
+# ====================
 
-# POETRY
-poetry.lock
+# CONTINUE + DeepSeek
 
+# ====================
+.continue_cyber/
+.continuerc.yml
