@@ -115,50 +115,37 @@ nft list ruleset | while IFS= read -r line; do
     log_info "[STEP-5]   $line"
 done
 
+#
 ## =============================================================================
-## STEP 6: Log forwarder (dmesg -> Splunk HEC)
+## STEP 6: Log forwarder (ulogd -> Splunk HEC)
 ## =============================================================================
 #log_info "[STEP-6] Start - Configuring log forwarder"
-#if command -v dmesg >/dev/null 2>&1; then
-#    log_info "[STEP-6] dmesg is available in the system"
-#else
-#    log_warn "[STEP-6] dmesg not available - kernel logs cannot be forwarded to Splunk"
-#fi
+#
+## 1. Iniciar ulogd en segundo plano
+#log_info "[STEP-6] Iniciando ulogd para capturar logs en userspace..."
+#ulogd -d
+#sleep 2 # Darle tiempo a que cree el archivo de logs
 #
 #forward_to_splunk() {
-#    # Use NFTables-specific variables, fallback to generic Splunk variables
 #    HEC_URL="${NFTABLES_SPLUNK_HEC_URL:-$SPLUNK_HEC_URL}"
 #    HEC_TOKEN="${NFTABLES_SPLUNK_HEC_TOKEN:-$SPLUNK_HEC_TOKEN}"
 #
 #    if [ -z "$HEC_URL" ] || [ -z "$HEC_TOKEN" ]; then
-#        log_warn "[STEP-6] Splunk HEC URL/Token not defined - nftables logs only available via dmesg local"
+#        log_warn "[STEP-6] Splunk HEC URL/Token not defined - forwarder disabled"
 #        return
 #    fi
 #
-#    log_info "[STEP-6] Starting forwarder dmesg -> Splunk HEC (URL: $HEC_URL)"
+#    log_info "[STEP-6] Starting forwarder ulogd -> Splunk HEC (URL: $HEC_URL)"
 #
-#    # Follow kernel messages and filter nftables-related lines
-#    dmesg -w 2>/dev/null | grep --line-buffered \
+#    # 2. Leemos el archivo local de ulogd
+#    tail -F /var/log/ulogd.syslogemu 2>/dev/null | grep --line-buffered \
 #        -E "NFT-FWD|NFT-INPUT|CRITICAL|WARNING|DIRECT|UNAUTHORIZED|ENVOY_ADMIN" | \
 #    while IFS= read -r line; do
-#        # Build JSON payload for Splunk HEC
+#
 #        payload=$(printf '{"event":{"message":"%s","host":"%s","source":"nftables"}}' \
 #            "$(echo "$line" | sed 's/"/\\"/g')" \
 #            "$(hostname)")
 #
-############## v1
-#        # Send to HEC - silent on error to avoid interrupting the loop
-##        curl -sk -o /dev/null \
-##            -H "Authorization: Splunk $HEC_TOKEN" \
-##            -H "Content-Type: application/json" \
-##            -d "$payload" \
-##            "$HEC_URL" || log_warn "[STEP-6] Error sending event to Splunk"
-#
-############## v2
-#        # Send to HEC securely:
-#        # -s: silent
-#        # --cacert: validate Splunk certificate against the project root CA
-#        # --max-time 5: prevent the firewall from freezing if Splunk doesn't respond
 #        curl -s --cacert /ca/ca.crt --max-time 5 -o /dev/null \
 #            -H "Authorization: Splunk $HEC_TOKEN" \
 #            -H "Content-Type: application/json" \
@@ -170,16 +157,42 @@ done
 #}
 #
 #forward_to_splunk
+#
+
 
 # =============================================================================
-# STEP 6: Log forwarder (syslogd -> Splunk HEC)
+# STEP 6: Log forwarder (ulogd -> Splunk HEC)
 # =============================================================================
 log_info "[STEP-6] Start - Configuring log forwarder"
 
-# 1. Iniciar el demonio de syslog interno de Alpine
-log_info "[STEP-6] Iniciando syslogd local para capturar logs del kernel..."
-syslogd -O /var/log/messages
-sleep 2 # Darle tiempo a que cree el archivo
+# 1. Crear configuración mínima de ulogd para capturar el group 0
+cat << 'EOF' > /etc/ulogd.conf
+[global]
+logfile="/var/log/nftables/ulogd_system.log"
+
+# Carga de Plugins
+plugin="/usr/lib/ulogd/ulogd_inppkt_NFLOG.so"
+plugin="/usr/lib/ulogd/ulogd_raw2packet_BASE.so"
+plugin="/usr/lib/ulogd/ulogd_filter_IFINDEX.so"
+plugin="/usr/lib/ulogd/ulogd_filter_IP2STR.so"
+plugin="/usr/lib/ulogd/ulogd_filter_PRINTPKT.so"
+plugin="/usr/lib/ulogd/ulogd_output_LOGEMU.so"
+
+# El stack DEBE incluir la traducción de formato antes de llegar a LOGEMU
+stack=log1:NFLOG,base1:BASE,ifi1:IFINDEX,ip2str1:IP2STR,print1:PRINTPKT,emu1:LOGEMU
+
+[log1]
+group=0
+
+[emu1]
+file="/var/log/nftables/ulogd_alerts.log"
+sync=1
+EOF
+
+# 2. Iniciar ulogd en segundo plano
+log_info "[STEP-6] Iniciando ulogd para capturar logs en userspace..."
+ulogd -d
+sleep 2 # Darle tiempo a que cree el archivo de alertas
 
 forward_to_splunk() {
     HEC_URL="${NFTABLES_SPLUNK_HEC_URL:-$SPLUNK_HEC_URL}"
@@ -190,10 +203,10 @@ forward_to_splunk() {
         return
     fi
 
-    log_info "[STEP-6] Starting forwarder syslog -> Splunk HEC (URL: $HEC_URL)"
+    log_info "[STEP-6] Starting forwarder ulogd -> Splunk HEC (URL: $HEC_URL)"
 
-    # 2. Reemplazamos 'dmesg -w' por 'tail -F' leyendo el archivo local
-    tail -F /var/log/messages 2>/dev/null | grep --line-buffered \
+    # 3. Leemos el NUEVO archivo local de alertas de ulogd
+    tail -F /var/log/nftables/ulogd_alerts.log 2>/dev/null | grep --line-buffered \
         -E "NFT-FWD|NFT-INPUT|CRITICAL|WARNING|DIRECT|UNAUTHORIZED|ENVOY_ADMIN" | \
     while IFS= read -r line; do
 
@@ -212,8 +225,6 @@ forward_to_splunk() {
 }
 
 forward_to_splunk
-
-
 
 # =============================================================================
 # STEP 7: Monitoring loop

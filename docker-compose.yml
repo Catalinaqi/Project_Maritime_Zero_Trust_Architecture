@@ -303,11 +303,10 @@ services:
 
     cap_add:
       - NET_ADMIN
-      - SYS_ADMIN
 
     volumes:
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
-      - nftables_logs:/var/log/nftables
+      #- nftables_logs:/var/log/nftables
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
 
     environment:
@@ -318,7 +317,7 @@ services:
       - NFTABLES_OPA_IP=${NFTABLES_OPA_IP:-172.20.2.6}
       - NFTABLES_API_IP=${NFTABLES_API_IP:-172.20.3.20}
       # NFTables - Target Networks IPs
-      - NFTABLES_CORPORATE_NET=${NFTABLES_CORPORATE_NET:-172.20.10.0/24}
+      - NFTABLES_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
 
       # NFTables - Service Ports
       - NFTABLES_PEP_PORT=${NFTABLES_PEP_PORT:-8443}
@@ -929,9 +928,9 @@ volumes:
     name: maritime-zta_envoy_logs
     driver: local
 
-  nftables_logs:
-    name: maritime-zta_nftables_logs
-    driver: local
+#  nftables_logs:
+#    name: maritime-zta_nftables_logs
+#    driver: local
 
   snort_logs:
     name: maritime-zta_snort_logs

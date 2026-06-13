@@ -35,8 +35,7 @@ table inet filter {
         ip protocol icmp accept
         ip6 nexthdr ipv6-icmp accept
 
-        # CAMBIO ULOGD: Enviamos a userspace (group 0) en lugar del kernel
-        log prefix "[NFT-INPUT] DROP: " group 0 drop
+        log prefix "[NFT-INPUT] DROP: " level warn drop
     }
 
     chain forward {
@@ -47,39 +46,32 @@ table inet filter {
         ip6 nexthdr ipv6-icmp accept
 
         # RULE 1: Allow only PEP port as legitimate ZTA entry point
-        # CAMBIO SEGURIDAD: Añadido ip daddr para prevenir Movimiento Lateral
-        ip daddr ${NFTABLES_ENVOY_IP} tcp dport ${NFTABLES_PEP_PORT} accept
+        tcp dport ${NFTABLES_PEP_PORT} accept
 
         # RULE 2: Allow Envoy → OPA policy queries; block others
         ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_OPA_IP} tcp dport ${NFTABLES_OPA_PORTS} accept
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_OPA_PORTS} log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " group 0 drop
+        tcp dport ${NFTABLES_OPA_PORTS} log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " level crit drop
 
         # RULE 3: Allow Envoy → API backend; block others
         ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_API_IP} tcp dport ${NFTABLES_API_PORT} accept
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_API_PORT} log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " group 0 drop
+        tcp dport ${NFTABLES_API_PORT} log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " level crit drop
 
         # RULE 4: Allow API backend → MongoDB; block others
         ip saddr ${NFTABLES_API_IP} ip daddr ${NFTABLES_MONGODB_IP} tcp dport ${NFTABLES_MONGO_PORT} accept
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_MONGO_PORT} log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " group 0 drop
+        tcp dport ${NFTABLES_MONGO_PORT} log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " level crit drop
 
         # RULE 5: Explicitly block Envoy admin port from outside
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_ENVOY_ADMIN_PORT} log prefix "[CRITICAL] ENVOY_ADMIN_ATTEMPT: " group 0 drop
+        tcp dport ${NFTABLES_ENVOY_ADMIN_PORT} log prefix "[CRITICAL] ENVOY_ADMIN_ATTEMPT: " level crit drop
 
         # RULE 6: Allow any container → Splunk HEC (for log forwarding)
         ip daddr ${NFTABLES_SPLUNK_IP} tcp dport ${NFTABLES_SIEM_HEC_PORT} accept
 
         # RULE 7: Allow only corporate subnet to Splunk Web UI
         ip saddr ${NFTABLES_CORPORATE_NET} ip daddr ${NFTABLES_SPLUNK_IP} tcp dport ${NFTABLES_SIEM_WEB_PORT} accept
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_SIEM_WEB_PORT} log prefix "[WARNING] UNAUTHORIZED_SPLUNK_UI: " group 0 drop
+        tcp dport ${NFTABLES_SIEM_WEB_PORT} log prefix "[WARNING] UNAUTHORIZED_SPLUNK_UI: " level warn drop
 
         # RULE 8: Default deny - log and drop everything else
-        # CAMBIO ULOGD: group 0
-        log prefix "[NFT-FWD] DROP: " group 0 drop
+        log prefix "[NFT-FWD] DROP: " level info drop
     }
 
     chain output {

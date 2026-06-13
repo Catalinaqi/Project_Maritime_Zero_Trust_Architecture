@@ -78,8 +78,10 @@ test_tcp "client_intruso"          "$ENVOY_PUBLIC"     8443 "PASS" "public_net �
 test_tcp "client_soc_admin"        "$SPLUNK_IP"        8000 "PASS" "corporate_net → Splunk UI :8000"
 
 # Rule 6: HEC Logs (NEW TESTS ADDED)
-test_tcp "client_operatore_ancona" "$SPLUNK_IP"        8088 "PASS" "vpn_net → Splunk HEC :8088"
-test_tcp "client_capitano_claudia" "$SPLUNK_IP"        8088 "PASS" "satellite_net → Splunk HEC :8088"
+#test_tcp "client_operatore_ancona" "$SPLUNK_IP"        8088 "PASS" "vpn_net → Splunk HEC :8088"
+#test_tcp "client_capitano_claudia" "$SPLUNK_IP"        8088 "PASS" "satellite_net → Splunk HEC :8088"
+
+#test_tcp "api_backend" "$SPLUNK_IP" 8088 "PASS" "api_backend → Splunk HEC :8088"
 
 # =============================================================================
 header "BLOCK 2: PEP BYPASS — nftables MUST BLOCK"

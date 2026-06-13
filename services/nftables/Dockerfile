@@ -18,6 +18,7 @@ RUN apk add --no-cache \
     curl \
     grep \
     util-linux \
+    ulogd \
     && rm -rf /var/cache/apk/*
 
 RUN mkdir -p /etc/nftables /var/log/nftables
