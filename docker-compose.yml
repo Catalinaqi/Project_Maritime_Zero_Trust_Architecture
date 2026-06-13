@@ -89,7 +89,7 @@ services:
           "CMD",
           "mongosh",
           "--host",
-          "db_primary",
+          "172.20.3.5", # "db_primary",
           "--tls",
           "--tlsCAFile",
           "/certs/mongodb/ca.crt",
@@ -303,20 +303,35 @@ services:
 
     cap_add:
       - NET_ADMIN
+      - SYS_ADMIN
 
     volumes:
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
       - nftables_logs:/var/log/nftables
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
 
     environment:
-      - ENVOY_IP=172.20.2.7
-      - MONGODB_IP=172.20.3.5
-      - SPLUNK_IP=172.20.4.8
-      - OPA_IP=172.20.2.6
-      - API_IP=172.20.3.20
-      - CORPORATE_NET=172.20.10.0/24
-      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+      # NFTables - Target Service IPs
+      - NFTABLES_ENVOY_IP=${NFTABLES_ENVOY_IP:-172.20.2.7}
+      - NFTABLES_MONGODB_IP=${NFTABLES_MONGODB_IP:-172.20.3.5}
+      - NFTABLES_SPLUNK_IP=${NFTABLES_SPLUNK_IP:-172.20.4.8}
+      - NFTABLES_OPA_IP=${NFTABLES_OPA_IP:-172.20.2.6}
+      - NFTABLES_API_IP=${NFTABLES_API_IP:-172.20.3.20}
+      # NFTables - Target Networks IPs
+      - NFTABLES_CORPORATE_NET=${NFTABLES_CORPORATE_NET:-172.20.10.0/24}
+
+      # NFTables - Service Ports
+      - NFTABLES_PEP_PORT=${NFTABLES_PEP_PORT:-8443}
+      - NFTABLES_OPA_PORTS=${NFTABLES_OPA_PORTS:-{8181,9191}}
+      - NFTABLES_MONGO_PORT=${NFTABLES_MONGO_PORT:-27017}
+      - NFTABLES_API_PORT=${NFTABLES_API_PORT:-3000}
+      - NFTABLES_SIEM_HEC_PORT=${NFTABLES_SIEM_HEC_PORT:-8088}
+      - NFTABLES_SIEM_WEB_PORT=${NFTABLES_SIEM_WEB_PORT:-8000}
+      - NFTABLES_ENVOY_ADMIN_PORT=${NFTABLES_ENVOY_ADMIN_PORT:-9901}
+
+      # NFTables - Splunk Connection
+      - NFTABLES_SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      - NFTABLES_SPLUNK_HEC_TOKEN=${NFTABLES_SPLUNK_HEC_TOKEN}
 
     logging:
       driver: "json-file"
@@ -373,19 +388,19 @@ services:
       - TZ=${TZ}
       # NETWORK TOPOLOGY VARIABLES (CIDRs)
       - ZTA_HOME_NET=[172.20.2.0/24,172.20.3.0/24,172.20.4.0/24,172.20.10.0/24,172.20.11.0/24,172.20.12.0/24,172.20.13.0/24]
-      - ZTA_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET}
-      - ZTA_VPN_NET=${NETWORK_VPN_SUBNET}
-      - ZTA_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET}
-      - ZTA_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET}
-      - ZTA_BACKEND_NET=${NETWORK_BACKEND_SUBNET}
+      - ZTA_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
+      - ZTA_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+      - ZTA_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+      - ZTA_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
+      - ZTA_BACKEND_NET=${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
       - ZTA_SNORT_INTERFACES=${ZTA_SNORT_INTERFACES}
       # CRITICAL PORT DEFINITIONS
-      - ZTA_PEP_PORT=${SNORT_PORT_PEP}
+      - ZTA_PEP_PORT=${SNORT_PORT_PEP:-8443}
       - ZTA_OPA_PORTS=${SNORT_PORT_OPA}
-      - ZTA_MONGO_PORT=${SNORT_PORT_MONGO}
-      - ZTA_API_PORT=${SNORT_PORT_API}
+      - ZTA_MONGO_PORT=${SNORT_PORT_MONGO:-27017}
+      - ZTA_API_PORT=${SNORT_PORT_API:-3000}
       - ZTA_SIEM_PORTS=${SNORT_PORT_SIEM}
-      - ZTA_ADMIN_PORT=${SNORT_PORT_ADMIN}
+      - ZTA_ADMIN_PORT=${SNORT_PORT_ADMIN:-9901}
 
     # --- ORCHESTRATION ---
     depends_on:
@@ -775,7 +790,7 @@ services:
       pep_gateway:
         condition: service_started
 
-    #command: ["tail", "-f", "/dev/null"]
+    command: ["tail", "-f", "/dev/null"]
     profiles:
       - testing
 

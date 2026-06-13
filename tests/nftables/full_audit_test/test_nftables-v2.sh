@@ -3,17 +3,12 @@
 # MARITIME ZTA - TEST NFTABLES FIREWALL
 # Run from path: Project_Maritime_Zero_Trust_Architecture/tests/nftables/full_audit_test
 # Prerequisite: docker compose --profile testing up -d
-
-# cd ./tests/nftables/full_audit_test
-# chmod +x test_nftables.sh
-# ./test_nftables.sh
 # =============================================================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'
 YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 PASS=0; FAIL=0; TOTAL=0
-REPORT_FILE="nftables_audit_report-3.txt"
-# outputs file: nftables_audit_report,nftables_audit_report-2,nftables_audit_report-3
+REPORT_FILE="nftables_audit_report-v2.txt"
 
 # Initialize English report
 echo "=======================================================================" > "$REPORT_FILE"
@@ -57,41 +52,37 @@ test_tcp() {
 }
 
 # =============================================================================
-# Envoy IPs per network — each client uses the IP of its own subnet
-# pep_gateway has an IP in each compose network
+# Envoy IPs per network
 # =============================================================================
-ENVOY_VPN="172.20.11.7"        # vpn_net       — client_operatore_ancona
-ENVOY_SATELLITE="172.20.12.7"  # satellite_net  — client_capitano_claudia
-ENVOY_CORPORATE="172.20.10.7"  # corporate_net  — client_soc_admin
-ENVOY_PUBLIC="172.20.13.7"     # public_net     — client_intruso
+ENVOY_VPN="172.20.11.7"
+ENVOY_SATELLITE="172.20.12.7"
+ENVOY_CORPORATE="172.20.10.7"
+ENVOY_PUBLIC="172.20.13.7"
 
-# Internal IPs — backend_net (never accessible from clients if nftables works)
+# Internal IPs
 MONGODB_IP="172.20.3.5"
 API_IP="172.20.3.20"
-
-# OPA — zerotrust_net (never directly accessible from clients)
 OPA_IP="172.20.2.6"
-
-# Splunk — monitoring_net
 SPLUNK_IP="172.20.4.8"
-
-# Envoy admin — zerotrust_net (never accessible from clients)
 ENVOY_ADMIN_IP="172.20.2.7"
 
 # =============================================================================
 header "BLOCK 1: LEGITIMATE FLOWS — nftables MUST ALLOW"
-# Each client connects to Envoy via its own subnet
-# nftables: tcp dport 8443 accept — no origin restriction
 # =============================================================================
-test_tcp "client_operatore_ancona" "$ENVOY_VPN"       8443 "PASS" "vpn_net → Envoy :8443 (operatore_ancona via 172.20.11.7)"
-test_tcp "client_capitano_claudia" "$ENVOY_SATELLITE"  8443 "PASS" "satellite_net → Envoy :8443 (capitano_claudia via 172.20.12.7)"
-test_tcp "client_soc_admin"        "$ENVOY_CORPORATE"  8443 "PASS" "corporate_net → Envoy :8443 (soc_admin via 172.20.10.7)"
-test_tcp "client_intruso"          "$ENVOY_PUBLIC"     8443 "PASS" "public_net → Envoy :8443 (intruso via 172.20.13.7 — OPA will decide)"
-test_tcp "client_soc_admin"        "$SPLUNK_IP"        8000 "PASS" "corporate_net → Splunk UI :8000 (soc_admin)"
+test_tcp "client_operatore_ancona" "$ENVOY_VPN"       8443 "PASS" "vpn_net → Envoy :8443"
+test_tcp "client_capitano_claudia" "$ENVOY_SATELLITE"  8443 "PASS" "satellite_net → Envoy :8443"
+test_tcp "client_soc_admin"        "$ENVOY_CORPORATE"  8443 "PASS" "corporate_net → Envoy :8443"
+test_tcp "client_intruso"          "$ENVOY_PUBLIC"     8443 "PASS" "public_net → Envoy :8443"
+
+# Rule 7: Corporate UI
+test_tcp "client_soc_admin"        "$SPLUNK_IP"        8000 "PASS" "corporate_net → Splunk UI :8000"
+
+# Rule 6: HEC Logs (NEW TESTS ADDED)
+test_tcp "client_operatore_ancona" "$SPLUNK_IP"        8088 "PASS" "vpn_net → Splunk HEC :8088"
+test_tcp "client_capitano_claudia" "$SPLUNK_IP"        8088 "PASS" "satellite_net → Splunk HEC :8088"
 
 # =============================================================================
 header "BLOCK 2: PEP BYPASS — nftables MUST BLOCK"
-# Direct access to internal services avoiding Envoy
 # =============================================================================
 test_tcp "client_intruso"          "$MONGODB_IP"    27017 "BLOCK" "public_net → MongoDB :27017 direct"
 test_tcp "client_intruso"          "$API_IP"        3000  "BLOCK" "public_net → api_backend :3000 direct"
@@ -103,7 +94,6 @@ test_tcp "client_capitano_claudia" "$OPA_IP"        8181  "BLOCK" "satellite_net
 
 # =============================================================================
 header "BLOCK 3: LATERAL MOVEMENT — nftables MUST BLOCK"
-# Clients attempting to reach IPs on other networks directly
 # =============================================================================
 test_tcp "client_intruso"          "172.20.11.20" 8443 "BLOCK" "public_net → vpn_net (operatore_ancona)"
 test_tcp "client_intruso"          "172.20.12.21" 8443 "BLOCK" "public_net → satellite_net (capitano_claudia)"

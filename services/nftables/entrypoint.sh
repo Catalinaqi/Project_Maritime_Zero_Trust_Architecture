@@ -4,89 +4,229 @@
 # =============================================================================
 set -euo pipefail
 
+# =============================================================================
+# Logging functions with color and level
+# =============================================================================
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+
+log_info()  { echo -e "${GREEN}[Entrypoint-NFTABLES] [INFO]${NC}  $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
+log_warn()  { echo -e "${YELLOW}[Entrypoint-NFTABLES] [WARN]${NC}  $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
+log_error() { echo -e "${RED}[Entrypoint-NFTABLES] [ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1" >&2; }
+fail()      { log_error "$1"; exit 1; }
+
 RULES_SRC="/etc/nftables/rules.nft"
 RULES_RENDERED="/tmp/rules_rendered.nft"
 LOG_DIR="/var/log/nftables"
 
-log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
-fail() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" >&2; exit 1; }
+echo "================================================================================"
+echo -e "  ${CYAN}NFTables Firewall - Entrypoint - Maritime Zero Trust Architecture${NC}"
+echo "================================================================================"
 
-# --- Variables obligatorias del compose ---
-: "${ENVOY_IP:?ENVOY_IP no definida en compose}"
-: "${OPA_IP:?OPA_IP no definida en compose}"
-: "${MONGODB_IP:?MONGODB_IP no definida en compose}"
-: "${API_IP:?API_IP no definida en compose}"
-: "${SPLUNK_IP:?SPLUNK_IP no definida en compose}"
-: "${CORPORATE_NET:?CORPORATE_NET no definida en compose}"
+# =============================================================================
+# STEP 1: Pre-flight checks
+# =============================================================================
+log_info "[STEP-1] Start - Pre-flight checks"
 
-# Splunk HEC opcionales — si no están definidas los logs no se envían a Splunk
-SPLUNK_HEC_URL="${SPLUNK_HEC_URL:-}"
-SPLUNK_HEC_TOKEN="${SPLUNK_HEC_TOKEN:-}"
+command -v nft >/dev/null 2>&1 || fail "[STEP-1] nft binary not found"
+command -v envsubst >/dev/null 2>&1 || fail "[STEP-1] envsubst (gettext) not installed"
 
-# --- Preparacion ---
-[ -f "$RULES_SRC" ] || fail "rules.nft no encontrado: $RULES_SRC"
+NFT_VERSION=$(nft --version 2>&1 | head -1 || echo "version unknown")
+log_info "[STEP-1] Engine detected: $NFT_VERSION"
+
+[ -f "$RULES_SRC" ] || fail "[STEP-1] rules.nft not found: $RULES_SRC"
 [ -d "$LOG_DIR" ]   || mkdir -p "$LOG_DIR"
 
-# --- Render: sustituir variables del compose ---
-log "Resolviendo variables del compose en rules.nft..."
+log_info "[STEP-1] Pre-flight checks completed OK"
+
+# =============================================================================
+# STEP 2: Validate environment variables (NFTABLES_ prefix)
+# =============================================================================
+log_info "[STEP-2] Start - Validating NFTables environment variables"
+
+REQUIRED_VARS=(
+    NFTABLES_ENVOY_IP NFTABLES_OPA_IP NFTABLES_MONGODB_IP
+    NFTABLES_API_IP NFTABLES_SPLUNK_IP NFTABLES_CORPORATE_NET
+    NFTABLES_PEP_PORT NFTABLES_OPA_PORTS NFTABLES_MONGO_PORT
+    NFTABLES_API_PORT NFTABLES_SIEM_HEC_PORT NFTABLES_SIEM_WEB_PORT
+    NFTABLES_ENVOY_ADMIN_PORT
+)
+
+ALL_OK=true
+for var in "${REQUIRED_VARS[@]}"; do
+    val="${!var:-}"
+    if [ -z "$val" ]; then
+        log_error "[STEP-2] Variable $var is EMPTY - envsubst will produce unresolved placeholders"
+        ALL_OK=false
+    else
+        log_info "[STEP-2] Variable $var = $val"
+    fi
+done
+
+[ "$ALL_OK" = true ] || fail "[STEP-2] Missing variables - fail secure"
+log_info "[STEP-2] All NFTables variables present - OK"
+
+# =============================================================================
+# STEP 3: Render rules.nft with envsubst
+# =============================================================================
+log_info "[STEP-3] Start - Resolving variables in rules.nft"
+
 envsubst < "$RULES_SRC" > "$RULES_RENDERED"
 
-# --- Validacion de sintaxis ---
-log "Validando sintaxis..."
-nft -c -f "$RULES_RENDERED" || fail "Sintaxis invalida — contenedor abortado (fail secure)"
+# Check for any unresolved ${...}
+if grep -q '\${' "$RULES_RENDERED"; then
+    log_error "[STEP-3] Unresolved variables in rendered rules:"
+    grep '\${' "$RULES_RENDERED" >&2
+    fail "[STEP-3] envsubst incomplete - fail secure"
+fi
 
-# --- Carga de reglas ---
-log "Cargando reglas nftables..."
-nft -f "$RULES_RENDERED" || fail "Error cargando reglas — contenedor abortado (fail secure)"
+log_info "[STEP-3] Render completed -> $RULES_RENDERED"
+log_info "[STEP-3] Rendered rules summary:"
+grep -E '(^table|chain|accept|drop|log)' "$RULES_RENDERED" | while IFS= read -r line; do
+    log_info "[STEP-3]   $line"
+done
 
-# --- Verificacion minima ---
-nft list table inet filter > /dev/null 2>&1 \
-    || fail "Tabla inet filter no encontrada"
-nft list chain inet filter forward | grep -q "policy drop" \
-    || fail "FORWARD policy drop no activa — fail secure"
+# =============================================================================
+# STEP 4: Syntax validation (fail-secure)
+# =============================================================================
+log_info "[STEP-4] Start - Validating nftables syntax"
 
-log "Firewall activo. Ruleset:"
-nft list ruleset
+nft -c -f "$RULES_RENDERED" || fail "[STEP-4] Invalid syntax - fail secure"
+log_info "[STEP-4] Syntax validation: PASSED"
 
-# --- Forwarder dmesg → Splunk HEC ---
-# Lee eventos nftables del kernel journal y los envía al SIEM en tiempo real
+# =============================================================================
+# STEP 5: Load rules and verify
+# =============================================================================
+log_info "[STEP-5] Start - Loading nftables rules"
+
+nft -f "$RULES_RENDERED" || fail "[STEP-5] Error loading rules - fail secure"
+
+# Verify table and chains exist
+nft list table inet filter > /dev/null 2>&1 || fail "[STEP-5] Table 'inet filter' not found"
+
+# Check the DROP policy ignoring uppercase/lowercase and spaces (-iq)
+# nft for alpine:3.19 -> -q (quiet): It is mandatory
+# nft for alpine:3.19 -> -i (ignore-case / ignore uppercase letters) :
+nft list chain inet filter forward | grep -iq "policy drop" \
+    || fail "[STEP-5] FORWARD policy drop not active - fail secure"
+
+log_info "[STEP-5] Rules loaded and verified - OK"
+log_info "[STEP-5] Full ruleset:"
+nft list ruleset | while IFS= read -r line; do
+    log_info "[STEP-5]   $line"
+done
+
+## =============================================================================
+## STEP 6: Log forwarder (dmesg -> Splunk HEC)
+## =============================================================================
+#log_info "[STEP-6] Start - Configuring log forwarder"
+#if command -v dmesg >/dev/null 2>&1; then
+#    log_info "[STEP-6] dmesg is available in the system"
+#else
+#    log_warn "[STEP-6] dmesg not available - kernel logs cannot be forwarded to Splunk"
+#fi
+#
+#forward_to_splunk() {
+#    # Use NFTables-specific variables, fallback to generic Splunk variables
+#    HEC_URL="${NFTABLES_SPLUNK_HEC_URL:-$SPLUNK_HEC_URL}"
+#    HEC_TOKEN="${NFTABLES_SPLUNK_HEC_TOKEN:-$SPLUNK_HEC_TOKEN}"
+#
+#    if [ -z "$HEC_URL" ] || [ -z "$HEC_TOKEN" ]; then
+#        log_warn "[STEP-6] Splunk HEC URL/Token not defined - nftables logs only available via dmesg local"
+#        return
+#    fi
+#
+#    log_info "[STEP-6] Starting forwarder dmesg -> Splunk HEC (URL: $HEC_URL)"
+#
+#    # Follow kernel messages and filter nftables-related lines
+#    dmesg -w 2>/dev/null | grep --line-buffered \
+#        -E "NFT-FWD|NFT-INPUT|CRITICAL|WARNING|DIRECT|UNAUTHORIZED|ENVOY_ADMIN" | \
+#    while IFS= read -r line; do
+#        # Build JSON payload for Splunk HEC
+#        payload=$(printf '{"event":{"message":"%s","host":"%s","source":"nftables"}}' \
+#            "$(echo "$line" | sed 's/"/\\"/g')" \
+#            "$(hostname)")
+#
+############## v1
+#        # Send to HEC - silent on error to avoid interrupting the loop
+##        curl -sk -o /dev/null \
+##            -H "Authorization: Splunk $HEC_TOKEN" \
+##            -H "Content-Type: application/json" \
+##            -d "$payload" \
+##            "$HEC_URL" || log_warn "[STEP-6] Error sending event to Splunk"
+#
+############## v2
+#        # Send to HEC securely:
+#        # -s: silent
+#        # --cacert: validate Splunk certificate against the project root CA
+#        # --max-time 5: prevent the firewall from freezing if Splunk doesn't respond
+#        curl -s --cacert /ca/ca.crt --max-time 5 -o /dev/null \
+#            -H "Authorization: Splunk $HEC_TOKEN" \
+#            -H "Content-Type: application/json" \
+#            -d "$payload" \
+#            "$HEC_URL" || log_warn "[STEP-6] Error de conexión segura con Splunk"
+#    done &
+#
+#    log_info "[STEP-6] Forwarder Splunk active (PID $!)"
+#}
+#
+#forward_to_splunk
+
+# =============================================================================
+# STEP 6: Log forwarder (syslogd -> Splunk HEC)
+# =============================================================================
+log_info "[STEP-6] Start - Configuring log forwarder"
+
+# 1. Iniciar el demonio de syslog interno de Alpine
+log_info "[STEP-6] Iniciando syslogd local para capturar logs del kernel..."
+syslogd -O /var/log/messages
+sleep 2 # Darle tiempo a que cree el archivo
+
 forward_to_splunk() {
-    if [ -z "$SPLUNK_HEC_URL" ] || [ -z "$SPLUNK_HEC_TOKEN" ]; then
-        log "SPLUNK_HEC_URL/TOKEN no definidos — logs nftables solo en dmesg"
+    HEC_URL="${NFTABLES_SPLUNK_HEC_URL:-$SPLUNK_HEC_URL}"
+    HEC_TOKEN="${NFTABLES_SPLUNK_HEC_TOKEN:-$SPLUNK_HEC_TOKEN}"
+
+    if [ -z "$HEC_URL" ] || [ -z "$HEC_TOKEN" ]; then
+        log_warn "[STEP-6] Splunk HEC URL/Token not defined - forwarder disabled"
         return
     fi
 
-    log "Iniciando forwarder dmesg → Splunk HEC..."
+    log_info "[STEP-6] Starting forwarder syslog -> Splunk HEC (URL: $HEC_URL)"
 
-    # dmesg -w sigue el kernel journal en tiempo real
-    # grep filtra solo eventos nftables (prefijos definidos en rules.nft)
-    dmesg -w 2>/dev/null | grep --line-buffered \
+    # 2. Reemplazamos 'dmesg -w' por 'tail -F' leyendo el archivo local
+    tail -F /var/log/messages 2>/dev/null | grep --line-buffered \
         -E "NFT-FWD|NFT-INPUT|CRITICAL|WARNING|DIRECT|UNAUTHORIZED|ENVOY_ADMIN" | \
     while IFS= read -r line; do
-        # Construir payload JSON para Splunk HEC
+
         payload=$(printf '{"event":{"message":"%s","host":"%s","source":"nftables"}}' \
             "$(echo "$line" | sed 's/"/\\"/g')" \
             "$(hostname)")
 
-        # Enviar al HEC — silencioso en caso de error para no interrumpir el bucle
-        curl -sk -o /dev/null \
-            -H "Authorization: Splunk $SPLUNK_HEC_TOKEN" \
+        curl -s --cacert /ca/ca.crt --max-time 5 -o /dev/null \
+            -H "Authorization: Splunk $HEC_TOKEN" \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "$SPLUNK_HEC_URL" || true
+            "$HEC_URL" || log_warn "[STEP-6] Error de conexión segura con Splunk"
     done &
 
-    log "Forwarder Splunk activo (PID $!)"
+    log_info "[STEP-6] Forwarder Splunk active (PID $!)"
 }
 
 forward_to_splunk
 
-# --- Bucle de monitoreo ---
-log "Entrando en bucle de monitoreo (60s)..."
+
+
+# =============================================================================
+# STEP 7: Monitoring loop
+# =============================================================================
+log_info "[STEP-7] Start - Monitoring loop every 60 seconds"
+
 while true; do
-    nft list table inet filter > /dev/null 2>&1 || {
-        log "Reglas perdidas — recargando..."
-        nft -f "$RULES_RENDERED" || fail "Recarga fallida"
-    }
+    if nft list table inet filter > /dev/null 2>&1; then
+        log_info "[STEP-7] Rules active - OK"
+    else
+        log_warn "[STEP-7] Rules lost - reloading..."
+        nft -f "$RULES_RENDERED" || fail "[STEP-7] Reload failed"
+        log_info "[STEP-7] Rules reloaded successfully"
+    fi
     sleep 60
 done

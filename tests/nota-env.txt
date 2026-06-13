@@ -1,0 +1,190 @@
+# ============================================================================
+# Environment Configuration - Maritime Zero Trust Architecture
+# IMPORTANT: Copy this file to .env and update with real values
+# NEVER commit .env to version control
+# ============================================================================
+
+# ====================
+# PROJECT METADATA
+# ====================
+PROJECT_NAME=maritime-zta
+ENVIRONMENT=development
+TZ=UTC
+
+# ====================
+# MONGODB CONFIGURATION
+# ====================
+MONGO_ROOT_USER=admin
+MONGO_ROOT_PASSWORD=admin7Julian
+MONGO_DATABASE=maritime_zta
+MONGO_HOST=db_primary
+MONGO_PORT=27017
+
+# ====================
+# SPLUNK SIEM
+# ====================
+SPLUNK_PASSWORD=admin7JulianQuispe.
+SPLUNK_HEC_TOKEN=855c36a1-b089-413e-8cb5-8face216982a
+# Generate with: python -c "import uuid; print(uuid.uuid4())"
+
+# ====================
+# OPA POLICY ENGINE
+# ====================
+OPA_LOG_LEVEL=info
+OPA_LOG_FORMAT=json
+
+# ====================
+# ENVOY PROXY
+# ====================
+ENVOY_LOG_LEVEL=info
+ENVOY_ADMIN_PORT=9901
+ENVOY_LISTENER_PORT=8443
+
+# ====================
+# PKI/CERTIFICATES
+# ====================
+CA_COUNTRY=US
+CA_STATE=California
+CA_CITY=San Francisco
+CA_ORG=Maritime Operations
+CA_OU=Security Team
+CA_COMMON_NAME=Maritime Root CA
+CA_VALIDITY_DAYS=3650
+CERT_VALIDITY_DAYS=365
+
+# ====================
+# NFTABLES - FIREWALL CONFIGURATION
+# ====================
+# NFTables utiliza estas variables para construir las reglas de firewall.
+# Los valores por defecto se toman de las variables SNORT/ENVOY existentes.
+# No tocar a menos que se modifiquen los puertos de los servicios.
+
+# Puertos críticos ZTA (referenciados desde SNORT)
+NFTABLES_PEP_PORT="${ENVOY_LISTENER_PORT}"
+# NFTables requiere formato de conjunto con llaves { } no corchetes [ ]
+NFTABLES_OPA_PORTS={8181,9191}
+NFTABLES_MONGO_PORT="${SNORT_PORT_MONGO}"
+NFTABLES_API_PORT="${SNORT_PORT_API}"
+NFTABLES_SIEM_HEC_PORT=8088
+NFTABLES_SIEM_WEB_PORT=8000
+NFTABLES_ENVOY_ADMIN_PORT="${ENVOY_ADMIN_PORT}"
+
+# Splunk HEC token (compartido con otros servicios)
+NFTABLES_SPLUNK_HEC_TOKEN="${SPLUNK_HEC_TOKEN}"
+
+# Atención: Las IPs de los servicios (ENVOY_IP, OPA_IP, etc.) están
+# definidas estáticamente en docker-compose.yml y no se configuran aquí.
+NFTABLES_ENVOY_IP=172.20.2.7
+NFTABLES_MONGODB_IP=172.20.3.5
+NFTABLES_SPLUNK_IP=172.20.4.8
+NFTABLES_OPA_IP=172.20.2.6
+NFTABLES_API_IP=172.20.3.20
+NFTABLES_CORPORATE_NET="${NETWORK_CORPORATE_SUBNET}"
+
+# ====================
+# SNORT - NIDS CONFIGURATION
+# ====================
+#SNORT_IFACE=any# eth2
+# Definimos la "Home Net" concatenando las variables anteriores para evitar errores tipográficos
+## The "Home Net" is defined by concatenating the previous variables to avoid typos
+SNORT_HOME_NET="${NETWORK_ZTA_SUBNET},${NETWORK_BACKEND_SUBNET},${NETWORK_MONITORING_SUBNET},${NETWORK_CORPORATE_SUBNET},${NETWORK_VPN_SUBNET},${NETWORK_SATELLITE_SUBNET},${NETWORK_PUBLIC_SUBNET}"
+# Puertos Críticos ZTA
+SNORT_PORT_PEP=8443
+# En .env usamos comillas simples o dobles para proteger el formato de lista de YAML
+SNORT_PORT_OPA="[8181,9191]"
+SNORT_PORT_MONGO=27017
+SNORT_PORT_API=3000
+SNORT_PORT_SIEM="[8000,8088]"
+SNORT_PORT_ADMIN=9901
+
+# Interfaces físicas/virtuales que Snort debe monitorear (separadas por dos puntos)
+ZTA_SNORT_INTERFACES=eth0:eth1:eth2:eth3:eth4:eth5:eth6
+
+# ====================
+# SECURITY SETTINGS
+# ====================
+# Risk score threshold (0-100)
+RISK_SCORE_THRESHOLD=80
+
+# Session timeout (seconds)
+SESSION_TIMEOUT=3600
+
+# Rate limiting (requests per minute)
+RATE_LIMIT_PER_MINUTE=100
+
+# ====================
+# LOGGING & MONITORING
+# ====================
+LOG_LEVEL=info
+LOG_FORMAT=json
+LOG_RETENTION_DAYS=90
+
+# ====================
+# NETWORK CONFIGURATION
+# ====================
+# Docker network subnets -> sub rede base
+NETWORK_PERIMETER_SUBNET=172.20.1.0/24
+NETWORK_ZTA_SUBNET=172.20.2.0/24
+NETWORK_BACKEND_SUBNET=172.20.3.0/24
+NETWORK_MONITORING_SUBNET=172.20.4.0/24
+NETWORK_CLIENTS_SUBNET=172.20.5.0/24
+
+# Redes Específicas ZTA (Clientes)
+NETWORK_CORPORATE_SUBNET=172.20.10.0/24
+NETWORK_VPN_SUBNET=172.20.11.0/24
+NETWORK_SATELLITE_SUBNET=172.20.12.0/24
+NETWORK_PUBLIC_SUBNET=172.20.13.0/24
+
+# ====================
+# DOCKER CONFIGURATION
+# ====================
+COMPOSE_PROJECT_NAME=maritime-zta
+COMPOSE_FILE=docker-compose.yml
+COMPOSE_PROFILES=
+
+# ====================
+# DEVELOPMENT SETTINGS
+# ====================
+# Set to 'true' for development, 'false' for production
+DEBUG=false
+ENABLE_PROFILING=false
+
+# ====================
+# BACKUP & RECOVERY
+# ====================
+BACKUP_ENABLED=true
+BACKUP_SCHEDULE="0 2 * * *"  # Daily at 2 AM
+BACKUP_RETENTION_DAYS=30
+
+# ====================
+# COMPLIANCE
+# ====================
+# Audit log retention (days)
+AUDIT_RETENTION_DAYS=365
+
+# Enable detailed audit logging
+AUDIT_DETAILED=true
+
+# ====================
+# FEATURE FLAGS
+# ====================
+FEATURE_RATE_LIMITING=true
+FEATURE_GEO_BLOCKING=false
+FEATURE_BEHAVIORAL_ANALYSIS=true
+
+# ====================
+# EXTERNAL INTEGRATIONS (Optional)
+# ====================
+# SIEM_EXTERNAL_URL=
+# SIEM_EXTERNAL_TOKEN=
+
+# THREAT_INTEL_API_KEY=
+# THREAT_INTEL_ENDPOINT=
+
+# ====================
+# PRODUCTION OVERRIDES
+# ====================
+# Uncomment and set for production
+# MONGO_REPLICA_SET=rs0
+# ENABLE_TLS_EVERYWHERE=true
+# ENFORCE_STRONG_AUTH=true

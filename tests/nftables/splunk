@@ -4,3 +4,5 @@ curl: (7) Failed to connect to localhost port 8088: Connection refused
 
 $ docker exec -it siem_central grep "HEC" //opt/splunk/var/log/splunk/splunkd.log | tail -n 20
 grep: //opt/splunk/var/log/splunk/splunkd.log: Permission denied
+
+---

@@ -1,0 +1,74 @@
+=======================================================================
+ MARITIME ZTA - NFTABLES FIREWALL AUDIT REPORT
+ Execution Start Time: 2026-06-13 19:10:35
+=======================================================================
+
+--- BLOCK 1: LEGITIMATE FLOWS — nftables MUST ALLOW ---
+[PASS] vpn_net → Envoy :8443 — connected ✔
+[PASS] satellite_net → Envoy :8443 — connected ✔
+[PASS] corporate_net → Envoy :8443 — connected ✔
+[PASS] public_net → Envoy :8443 — connected ✔
+[FAIL] corporate_net → Splunk UI :8000 — SHOULD CONNECT but was blocked/timeout
+[FAIL] vpn_net → Splunk HEC :8088 — SHOULD CONNECT but was blocked/timeout
+[FAIL] satellite_net → Splunk HEC :8088 — SHOULD CONNECT but was blocked/timeout
+
+--- BLOCK 2: PEP BYPASS — nftables MUST BLOCK ---
+[PASS] public_net → MongoDB :27017 direct — blocked ✔
+[PASS] public_net → api_backend :3000 direct — blocked ✔
+[PASS] public_net → OPA REST :8181 direct — blocked ✔
+[PASS] public_net → OPA gRPC :9191 direct — blocked ✔
+[PASS] public_net → Envoy Admin :9901 — blocked ✔
+[PASS] vpn_net → MongoDB :27017 direct — blocked ✔
+[PASS] satellite_net → OPA :8181 direct — blocked ✔
+
+--- BLOCK 3: LATERAL MOVEMENT — nftables MUST BLOCK ---
+[PASS] public_net → vpn_net (operatore_ancona) — blocked ✔
+[PASS] public_net → satellite_net (capitano_claudia) — blocked ✔
+[PASS] public_net → corporate_net (soc_admin) — blocked ✔
+[PASS] satellite_net → corporate_net (escalation capitano→SOC) — blocked ✔
+
+--- BLOCK 4: SPLUNK UI — SOC ONLY ALLOWED ---
+[PASS] public_net → Splunk UI :8000 — blocked ✔
+[PASS] satellite_net → Splunk UI :8000 — blocked ✔
+[PASS] vpn_net → Splunk UI :8000 — blocked ✔
+
+--- BLOCK 5: TRACEABILITY ---
+
+--- TRACEABILITY: Active rules ---
+		type filter hook input priority filter; policy drop;
+		log prefix "[NFT-INPUT] DROP: " drop
+		type filter hook forward priority filter; policy drop;
+		tcp dport 8443 accept
+		ip saddr 172.20.2.7 ip daddr 172.20.2.6 tcp dport { 8181, 9191 } accept
+		tcp dport { 8181, 9191 } log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " level crit drop
+		ip saddr 172.20.2.7 ip daddr 172.20.3.20 tcp dport 3000 accept
+		tcp dport 3000 log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " level crit drop
+		ip saddr 172.20.3.20 ip daddr 172.20.3.5 tcp dport 27017 accept
+		tcp dport 27017 log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " level crit drop
+		tcp dport 9901 log prefix "[CRITICAL] ENVOY_ADMIN_ATTEMPT: " level crit drop
+		ip daddr 172.20.4.8 tcp dport 8088 accept
+		ip saddr 172.20.10.0/24 ip daddr 172.20.4.8 tcp dport 8000 accept
+		tcp dport 8000 log prefix "[WARNING] UNAUTHORIZED_SPLUNK_UI: " drop
+		log prefix "[NFT-FWD] DROP: " level info drop
+		type filter hook output priority filter; policy accept;
+
+--- TRACEABILITY: Firewall container logs ---
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:35 - [STEP-5]   }
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:35 - [STEP-6] Start - Configuring log forwarder
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:35 - [STEP-6] Iniciando syslogd local para capturar logs del kernel...
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:37 - [STEP-6] Starting forwarder syslog -> Splunk HEC (URL: https://siem_central:8088/services/collector/event)
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:37 - [STEP-6] Forwarder Splunk active (PID 118)
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:37 - [STEP-7] Start - Monitoring loop every 60 seconds
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:08:37 - [STEP-7] Rules active - OK
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:09:37 - [STEP-7] Rules active - OK
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:10:37 - [STEP-7] Rules active - OK
+[0;32m[Entrypoint-NFTABLES] [INFO][0m  2026-06-13 17:11:37 - [STEP-7] Rules active - OK
+
+--- TRACEABILITY: Splunk HEC Status ---
+Splunk HEC: 000 — might be starting
+
+--- SUMMARY ---
+Total : 21
+Pass  : 18
+Fail  : 3
+✘ 3 scenarios failed

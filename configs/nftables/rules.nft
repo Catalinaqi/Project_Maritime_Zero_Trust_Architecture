@@ -1,14 +1,26 @@
 #!/usr/sbin/nft -f
 
 # =============================================================================
-# MARITIME ZTA - NFTABLES FIREWALL RULES (TEMPLATE)
-# Variables resueltas desde docker-compose environment:
-#   ENVOY_IP      = pep_gateway
-#   OPA_IP        = pdp_engine
-#   MONGODB_IP    = db_primary
-#   API_IP        = api_backend
-#   SPLUNK_IP     = siem_central
-#   CORPORATE_NET = corporate_net subnet
+# MARITIME ZTA - NFTABLES FIREWALL RULES
+#
+# This rules uses variables from the container environment
+# firewall_perimeter - NFTABLES_ prefix.
+# They are substituted at startup by envsubst in entrypoint.sh.
+#
+# Variables used in this file:
+#   NFTABLES_ENVOY_IP           - IP of the PEP gateway (Envoy)
+#   NFTABLES_OPA_IP             - IP of the PDP engine (OPA)
+#   NFTABLES_MONGODB_IP         - IP of the primary database (MongoDB)
+#   NFTABLES_API_IP             - IP of the API backend
+#   NFTABLES_SPLUNK_IP          - IP of the SIEM (Splunk)
+#   NFTABLES_CORPORATE_NET      - Corporate subnet (CIDR)
+#   NFTABLES_PEP_PORT           - Port exposed by PEP (Envoy listener)
+#   NFTABLES_OPA_PORTS          - Ports of OPA (set notation, e.g. {8181,9191})
+#   NFTABLES_MONGO_PORT         - Port of MongoDB
+#   NFTABLES_API_PORT           - Port of API backend
+#   NFTABLES_SIEM_HEC_PORT      - Splunk HEC port
+#   NFTABLES_SIEM_WEB_PORT      - Splunk Web UI port
+#   NFTABLES_ENVOY_ADMIN_PORT   - Envoy admin interface port
 # =============================================================================
 
 flush ruleset
@@ -33,32 +45,32 @@ table inet filter {
         ip protocol icmp accept
         ip6 nexthdr ipv6-icmp accept
 
-        # REGLA 1: unico ingreso ZTA legitimo
-        tcp dport 8443 accept
+        # RULE 1: Allow only PEP port as legitimate ZTA entry point
+        tcp dport ${NFTABLES_PEP_PORT} accept
 
-        # REGLA 2: Envoy → OPA
-        ip saddr ${ENVOY_IP} ip daddr ${OPA_IP} tcp dport { 8181, 9191 } accept
-        tcp dport { 8181, 9191 } log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " level crit drop
+        # RULE 2: Allow Envoy → OPA policy queries; block others
+        ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_OPA_IP} tcp dport ${NFTABLES_OPA_PORTS} accept
+        tcp dport ${NFTABLES_OPA_PORTS} log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " level crit drop
 
-        # REGLA 3: Envoy → api_backend
-        ip saddr ${ENVOY_IP} ip daddr ${API_IP} tcp dport 3000 accept
-        tcp dport 3000 log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " level crit drop
+        # RULE 3: Allow Envoy → API backend; block others
+        ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_API_IP} tcp dport ${NFTABLES_API_PORT} accept
+        tcp dport ${NFTABLES_API_PORT} log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " level crit drop
 
-        # REGLA 4: api_backend → MongoDB
-        ip saddr ${API_IP} ip daddr ${MONGODB_IP} tcp dport 27017 accept
-        tcp dport 27017 log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " level crit drop
+        # RULE 4: Allow API backend → MongoDB; block others
+        ip saddr ${NFTABLES_API_IP} ip daddr ${NFTABLES_MONGODB_IP} tcp dport ${NFTABLES_MONGO_PORT} accept
+        tcp dport ${NFTABLES_MONGO_PORT} log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " level crit drop
 
-        # REGLA 5: Envoy admin — bloqueo explicito
-        tcp dport 9901 log prefix "[CRITICAL] ENVOY_ADMIN_ATTEMPT: " level crit drop
+        # RULE 5: Explicitly block Envoy admin port from outside
+        tcp dport ${NFTABLES_ENVOY_ADMIN_PORT} log prefix "[CRITICAL] ENVOY_ADMIN_ATTEMPT: " level crit drop
 
-        # REGLA 6: cualquier contenedor → Splunk HEC
-        ip daddr ${SPLUNK_IP} tcp dport 8088 accept
+        # RULE 6: Allow any container → Splunk HEC (for log forwarding)
+        ip daddr ${NFTABLES_SPLUNK_IP} tcp dport ${NFTABLES_SIEM_HEC_PORT} accept
 
-        # REGLA 7: Splunk Web UI — solo corporate_net (SOC)
-        ip saddr ${CORPORATE_NET} ip daddr ${SPLUNK_IP} tcp dport 8000 accept
-        tcp dport 8000 log prefix "[WARNING] UNAUTHORIZED_SPLUNK_UI: " level warn drop
+        # RULE 7: Allow only corporate subnet to Splunk Web UI
+        ip saddr ${NFTABLES_CORPORATE_NET} ip daddr ${NFTABLES_SPLUNK_IP} tcp dport ${NFTABLES_SIEM_WEB_PORT} accept
+        tcp dport ${NFTABLES_SIEM_WEB_PORT} log prefix "[WARNING] UNAUTHORIZED_SPLUNK_UI: " level warn drop
 
-        # REGLA 8: default deny
+        # RULE 8: Default deny - log and drop everything else
         log prefix "[NFT-FWD] DROP: " level info drop
     }
 
