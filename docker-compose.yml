@@ -30,6 +30,7 @@ services:
       - splunk_etc:/opt/splunk/etc
       - ./configs/splunk:/tmp/defaults:ro
       - mongo_audit_logs:/var/log/mongodb
+      - snort_logs:/var/log/snort:ro
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data/risk_data:/opa_data
 
@@ -312,6 +313,10 @@ services:
       - MONGODB_IP=172.20.3.5
       - SPLUNK_IP=172.20.4.8
       - OPA_IP=172.20.2.6
+      - API_IP=172.20.3.20
+      - CORPORATE_NET=172.20.10.0/24
+      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
 
     logging:
       driver: "json-file"
@@ -328,16 +333,18 @@ services:
       context: ./services/snort
       dockerfile: Dockerfile
     container_name: ids_network_monitor
-    entrypoint: [ "/bin/bash", "-c" ]
-    command: >
-      "
-      echo 'Arrancando Snort con Motor DAQ y Modo Verbose...';
-      snort -c /etc/snort/snort.lua -R /etc/snort/rules/zta.rules -i eth2 -A alert_json --plugin-path /usr/local/lib/daq -v
-      "
-
     hostname: snort-ids
     restart: unless-stopped
 
+    # --- SECURITY & ZERO TRUST ---
+    privileged: false
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - apparmor:unconfined
+
+    # --- NETWORKING (The "Black Box") ---
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.11
@@ -354,43 +361,46 @@ services:
       public_net:
         ipv4_address: 172.20.13.11
 
-    user: root # add
-    privileged: true
-
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-
-    security_opt:
-      - apparmor:unconfined
-
+    # --- DATA PERSISTENCE & FILE MAPPING ---
     volumes:
-      - ./configs/snort/snort.lua:/etc/snort/snort.lua:ro
-      - ./configs/snort/rules:/etc/snort/rules:ro
+      - ./configs/snort/snort-zta.lua:/etc/snort/snort-zta.lua:ro
+      - ./configs/snort/snort-zta.rules:/etc/snort/snort-zta.rules:ro
+      - ./services/snort/entrypoint.sh:/scripts/entrypoint.sh:ro
       - snort_logs:/var/log/snort
 
+    # --- ENVIRONMENT VARIABLES ---
     environment:
-      - IDS_MODE=${IDS_MODE:-live}
-      - INTERFACE=${INTERFACE:-any}
-      - HOME_NET=${HOME_NET}
-      - SPLUNK_HEC_URL=${SPLUNK_HEC_URL:-https://siem_central:8088/services/collector/event}
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+      - TZ=${TZ}
+      # NETWORK TOPOLOGY VARIABLES (CIDRs)
+      - ZTA_HOME_NET=[172.20.2.0/24,172.20.3.0/24,172.20.4.0/24,172.20.10.0/24,172.20.11.0/24,172.20.12.0/24,172.20.13.0/24]
+      - ZTA_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET}
+      - ZTA_VPN_NET=${NETWORK_VPN_SUBNET}
+      - ZTA_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET}
+      - ZTA_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET}
+      - ZTA_BACKEND_NET=${NETWORK_BACKEND_SUBNET}
+      - ZTA_SNORT_INTERFACES=${ZTA_SNORT_INTERFACES}
+      # CRITICAL PORT DEFINITIONS
+      - ZTA_PEP_PORT=${SNORT_PORT_PEP}
+      - ZTA_OPA_PORTS=${SNORT_PORT_OPA}
+      - ZTA_MONGO_PORT=${SNORT_PORT_MONGO}
+      - ZTA_API_PORT=${SNORT_PORT_API}
+      - ZTA_SIEM_PORTS=${SNORT_PORT_SIEM}
+      - ZTA_ADMIN_PORT=${SNORT_PORT_ADMIN}
 
+    # --- ORCHESTRATION ---
     depends_on:
       siem_central:
         condition: service_started
 
+    # --- HEALTH MONITORING (Healthcheck) ---
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "test -f /etc/snort/snort.lua && test -f /etc/snort/rules/zta.rules && test -d /var/log/snort"
-        ]
+      test: [ "CMD", "pgrep", "snort" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 60s
 
+    # --- DOCKER LOG MANAGEMENT ---
     logging:
       driver: "json-file"
       options:
