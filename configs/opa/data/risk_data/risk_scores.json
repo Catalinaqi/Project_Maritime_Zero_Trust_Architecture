@@ -1,8 +1,26 @@
 {
   "risk_scores": {
-    "operatore_ancona": { "risk_score": 10 },
-    "capitano_claudia": { "risk_score": 10 },
-    "soc_admin":        { "risk_score": 10 },
-    "intruso":          { "risk_score": 99 }
+    "operatore_ancona": {
+      "risk_score": 10,
+      "is_anomaly": false,
+      "denied_count": 0,
+      "updated_at": "2026-06-18T07:47:01.791416"
+    },
+    "capitano_claudia": {
+      "risk_score": 10,
+      "is_anomaly": false,
+      "denied_count": 0
+    },
+    "soc_admin": {
+      "risk_score": 10,
+      "is_anomaly": false,
+      "denied_count": 0
+    },
+    "intruso": {
+      "risk_score": 90,
+      "is_anomaly": true,
+      "denied_count": 8,
+      "updated_at": "2026-06-18T07:47:01.790946"
+    }
   }
 }

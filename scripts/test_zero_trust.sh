@@ -136,7 +136,7 @@ set_splunk_risk_score() {
     siem_central bash -lc '
       set -e
 
-      SPLUNK_CSV="/opt/splunk/etc/apps/search/lookups/risk_scores.csv"
+      SPLUNK_CSV="/opt/splunk/etc/apps/search/lookups/historical_risk_scores.csv"
       mkdir -p /opt/splunk/etc/apps/search/lookups
 
       cat > "$SPLUNK_CSV" <<CSV
@@ -149,7 +149,7 @@ CSV
         SPLUNK_PYTHON="python3"
       fi
 
-      printf '\''{"configuration":{"param.opa_json_path":"/opa_data/risk_scores.json"}}'\'' \
+      printf '\''{"configuration":{"param.opa_json_path":"/opa_data/risk_data/risk_scores.json"}}'\'' \
         | "$SPLUNK_PYTHON" /opt/splunk/etc/apps/opa_risk_updater/bin/opa_risk_updater.py
     '
 

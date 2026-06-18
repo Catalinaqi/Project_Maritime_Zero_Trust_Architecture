@@ -5,15 +5,14 @@ plugins:
 
 services:
   splunk_hec:
-    url: https://siem_central:8088
+    url: http://siem_central:8088
     allow_insecure_tls: true
     headers:
-      Authorization: "Splunk ${SPLUNK_HEC_TOKEN}"
+      Authorization: "Splunk f34d1b82-628b-4b2a-8951-b8401314b875"
 
 decision_logs:
   console: true
   service: splunk_hec
-  # Invio raw, ma istruendo Splunk su come interpretarli
   resource: /services/collector/raw?sourcetype=opa_decision&index=main
   reporting:
     min_delay_seconds: 5

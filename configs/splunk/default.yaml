@@ -1,6 +1,4 @@
 splunk:
-  hec:
-    enable: true
-    port: 8088
-    ssl: false
-    token: CHANGE_ME_RANDOM_UUID_HERE
+  start_args: "--accept-license"
+  password: "${SPLUNK_PASSWORD}"
+  home_ownership_enforcement: false

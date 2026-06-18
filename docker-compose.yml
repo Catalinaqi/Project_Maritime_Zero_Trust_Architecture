@@ -31,8 +31,8 @@ services:
       - ./configs/splunk:/tmp/defaults:ro
       - mongo_audit_logs:/var/log/mongodb
       - snort_logs:/var/log/snort:ro
-      - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
-      - ./configs/opa/data/risk_data:/opa_data
+      #- ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
+      - ./configs/opa/data:/opa_data
 
     environment:
       - SPLUNK_START_ARGS=--accept-license
@@ -40,6 +40,7 @@ services:
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - SPLUNK_ROLE=splunk_standalone
       - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=false
+      - SPLUNK_DISABLE_POPUPS=true
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
@@ -187,10 +188,13 @@ services:
       - ./configs/opa/data/devices.json:/policies/devices.json:ro
       - ./configs/opa/data/networks.json:/policies/networks.json:ro
       - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
+
+      #- ./configs/opa/data/risk_data/risk_scores.json:/policies/risk_scores.json:ro
+      # AGGIUNGI — monta l'intera cartella risk_data
       - ./configs/opa/data/risk_data:/policies/risk_data
 
     environment:
-      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - MONGODB_HOST=db_primary
       - MONGODB_PORT=27017
@@ -202,6 +206,7 @@ services:
       - "--config-file=/config/opa-config.yaml"
       - "--log-level=debug"
       - "--log-format=json"
+      - "--watch"
       - "/policies"
 
     depends_on:

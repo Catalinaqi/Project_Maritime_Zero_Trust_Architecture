@@ -177,10 +177,28 @@ time_allowed(profile) if {
 # CONTROLLO RISK SCORE DINAMICO
 # ============================================================================
 
-risk_score := score if {
-    score := data.risk_data.risk_scores[user_id].risk_score
-} else := 0
+#risk_score := score if {
+#    score := data.risk_data.risk_scores.risk_scores[user_id].risk_score
+#} else := 0
 
+# Recupera il risk score dell'utente corrente.
+# Il dato arriva dal file:
+# configs/opa/data/risk_data/risk_scores.json
+#
+# Dentro OPA il path diventa:
+# data.risk_data.risk_scores
+#
+# Esempio:
+# data.risk_data.risk_scores["operatore_ancona"].risk_score = 10
+
+risk_score := object.get(
+    object.get(data.risk_data.risk_scores, user_id, {}),
+    "risk_score",
+    0
+)
+
+# Controlla se il rischio dell'utente è minore o uguale
+# alla soglia massima ammessa dal suo profilo/ruolo.
 risk_allowed(profile) if {
     risk_score <= profile.max_risk_score
 }
