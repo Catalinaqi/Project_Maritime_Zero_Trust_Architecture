@@ -33,14 +33,20 @@ services:
       - snort_logs:/var/log/snort:ro
       #- ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data:/opa_data
+      - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater
+      - ./configs/opa/data/risk_data:/opa_data
+
 
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+     # - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - SPLUNK_ROLE=splunk_standalone
+
       - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=false
       - SPLUNK_DISABLE_POPUPS=true
+      - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=true
+
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
@@ -552,8 +558,8 @@ services:
       - CLIENT_CERT=/certs/device/device.crt
       - CA_CERT=/ca/ca.crt
       - TPM_HANDLE=0x81000001
-      - TPM2TOOLS_TCTI=swtpm:host=swtpm_d001,port=2321
-      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d001,port=2321
+      - TPM2TOOLS_TCTI=swtpm:host=172.20.11.30,port=2321
+      - TPM2OPENSSL_TCTI=swtpm:host=172.20.11.30,port=2321
       - OPENSSL_MODULES=/usr/local/lib/ossl-modules
 
     depends_on:
@@ -598,8 +604,8 @@ services:
       - CLIENT_CERT=/certs/device/device.crt
       - CA_CERT=/ca/ca.crt
       - TPM_HANDLE=0x81000002
-      - TPM2TOOLS_TCTI=swtpm:host=swtpm_d002,port=2321
-      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d002,port=2321
+      - TPM2TOOLS_TCTI=swtpm:host=172.20.12.30,port=2321
+      - TPM2OPENSSL_TCTI=swtpm:host=172.20.12.30,port=2321
       - OPENSSL_MODULES=/usr/local/lib/ossl-modules
 
     depends_on:
@@ -644,8 +650,8 @@ services:
       - CLIENT_CERT=/certs/device/device.crt
       - CA_CERT=/ca/ca.crt
       - TPM_HANDLE=0x81000003
-      - TPM2TOOLS_TCTI=swtpm:host=swtpm_dsoc,port=2321
-      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_dsoc,port=2321
+      - TPM2TOOLS_TCTI=swtpm:host=172.20.10.30,port=2321
+      - TPM2OPENSSL_TCTI=swtpm:host=172.20.10.30,port=2321
       - OPENSSL_MODULES=/usr/local/lib/ossl-modules
 
     depends_on:
