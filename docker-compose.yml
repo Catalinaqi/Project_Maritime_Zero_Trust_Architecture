@@ -156,6 +156,19 @@ services:
       db_primary:
         condition: service_healthy
 
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const http=require('http');const req=http.get('http://127.0.0.1:3000/health',res=>{process.exit(res.statusCode===200?0:1)});req.on('error',()=>process.exit(1));req.setTimeout(5000,()=>{req.destroy();process.exit(1)});"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
     logging:
       driver: "json-file"
       options:
@@ -221,7 +234,14 @@ services:
 
     depends_on:
       siem_central:
-        condition: service_started
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
     logging:
       driver: "json-file"
@@ -278,9 +298,16 @@ services:
 
     depends_on:
       pdp_engine:
-        condition: service_started
+        condition: service_healthy
       api_backend:
-        condition: service_started
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9901/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
     logging:
       driver: "json-file"
@@ -421,7 +448,7 @@ services:
     # --- ORCHESTRATION ---
     depends_on:
       siem_central:
-        condition: service_started
+        condition: service_healthy
 
     # --- HEALTH MONITORING (Healthcheck) ---
     healthcheck:
@@ -979,3 +1006,7 @@ volumes:
   tpm_dsoc_client_state:
     name: maritime-zta_tpm_dsoc_client_state
     driver: local
+
+
+
+
