@@ -322,7 +322,7 @@ services:
     volumes:
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
       #- nftables_logs:/var/log/nftables
-      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      #- ./certs/ca/ca.crt:/ca/ca.crt:ro
 
     environment:
       # NFTables - Target Service IPs
@@ -331,12 +331,12 @@ services:
       - NFTABLES_SPLUNK_IP=${NFTABLES_SPLUNK_IP:-172.20.4.8}
       - NFTABLES_OPA_IP=${NFTABLES_OPA_IP:-172.20.2.6}
       - NFTABLES_API_IP=${NFTABLES_API_IP:-172.20.3.20}
-      - NFTABLES_SNORT_IP=${NFTABLES_SNORT_IP:-172.20.4.11},
+      - NFTABLES_SNORT_IP=${NFTABLES_SNORT_IP:-172.20.4.11}
       # NFTables - Target Networks IPs
       - NFTABLES_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
-      - NFTABLES_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24},
-      - NFTABLES_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24},
-      - NFTABLES_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24},
+      - NFTABLES_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+      - NFTABLES_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+      - NFTABLES_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
       # NFTables - Service Ports
       - NFTABLES_PEP_PORT=${NFTABLES_PEP_PORT:-8443}
       - NFTABLES_OPA_PORTS=${NFTABLES_OPA_PORTS:-{8181,9191}}
