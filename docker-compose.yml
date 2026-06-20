@@ -33,6 +33,8 @@ services:
       - snort_logs:/var/log/snort:ro
       #- ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data:/opa_data
+      - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater
+      - ./configs/opa/data/risk_data:/opa_data
 
       # Splunk attualmente usa il certificato auto-generato `SplunkServerDefaultCert`
       # -> per usare il nostro certificato CA è necessario implementare
@@ -43,10 +45,11 @@ services:
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+     # - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - SPLUNK_ROLE=splunk_standalone
       - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=false
       - SPLUNK_DISABLE_POPUPS=true
+      - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=true
       - SPLUNK_USER=root
 
     healthcheck:
@@ -201,7 +204,7 @@ services:
       - ./configs/opa/data/risk_data:/policies/risk_data
 
     environment:
-      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - MONGODB_HOST=db_primary
       - MONGODB_PORT=27017
@@ -243,14 +246,14 @@ services:
         ipv4_address: 172.20.2.7
       backend_net:
         ipv4_address: 172.20.3.7
-#      corporate_net:
-#        ipv4_address: 172.20.10.7
-#      vpn_net:
-#        ipv4_address: 172.20.11.7
-#      satellite_net:
-#        ipv4_address: 172.20.12.7
-#      public_net:
-#        ipv4_address: 172.20.13.7
+      corporate_net:
+        ipv4_address: 172.20.10.7
+      vpn_net:
+        ipv4_address: 172.20.11.7
+      satellite_net:
+        ipv4_address: 172.20.12.7
+      public_net:
+        ipv4_address: 172.20.13.7
 
     ports:
       - "8443:8443"
@@ -328,12 +331,9 @@ services:
       - NFTABLES_SPLUNK_IP=${NFTABLES_SPLUNK_IP:-172.20.4.8}
       - NFTABLES_OPA_IP=${NFTABLES_OPA_IP:-172.20.2.6}
       - NFTABLES_API_IP=${NFTABLES_API_IP:-172.20.3.20}
-      - NFTABLES_SNORT_IP=${NFTABLES_SNORT_IP:-172.20.4.11}
       # NFTables - Target Networks IPs
       - NFTABLES_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
-      - NFTABLES_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
-      - NFTABLES_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
-      - NFTABLES_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
+
       # NFTables - Service Ports
       - NFTABLES_PEP_PORT=${NFTABLES_PEP_PORT:-8443}
       - NFTABLES_OPA_PORTS=${NFTABLES_OPA_PORTS:-{8181,9191}}
@@ -342,9 +342,9 @@ services:
       - NFTABLES_SIEM_HEC_PORT=${NFTABLES_SIEM_HEC_PORT:-8088}
       - NFTABLES_SIEM_WEB_PORT=${NFTABLES_SIEM_WEB_PORT:-8000}
       - NFTABLES_ENVOY_ADMIN_PORT=${NFTABLES_ENVOY_ADMIN_PORT:-9901}
+
       # NFTables - Splunk Connection
-      - NFTABLES_SPLUNK_HEC_URL=https://172.20.4.8:8088/services/collector/event
-      #- NFTABLES_SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      - NFTABLES_SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - NFTABLES_SPLUNK_HEC_TOKEN=${NFTABLES_SPLUNK_HEC_TOKEN}
 
     logging:
@@ -571,14 +571,10 @@ services:
         condition: service_started
       pep_gateway:
         condition: service_started
-      firewall_perimeter:
-        condition: service_started
-      ids_network_monitor:
-        condition: service_started
 
     profiles:
       - testing
-    command: ["tail", "-f", "/dev/null"]
+
     logging:
       driver: "json-file"
       options:
@@ -615,8 +611,6 @@ services:
       - TPM2TOOLS_TCTI=swtpm:host=swtpm_d002,port=2321
       - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d002,port=2321
       - OPENSSL_MODULES=/usr/local/lib/ossl-modules
-
-    command: ["tail", "-f", "/dev/null"]
 
     depends_on:
       swtpm_d002:
@@ -672,7 +666,6 @@ services:
 
     profiles:
       - testing
-    command: ["tail", "-f", "/dev/null"]
 
     logging:
       driver: "json-file"
@@ -685,186 +678,186 @@ services:
   # ============================================================================
   # Questi client usano ancora device.key su file.
   # Dopo il provisioning TPM-backed dei certificati, per i test finali usare i client *_tpm.
-#
-#  client_operatore_ancona:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: operatore_ancona
-#        CLIENT_ROLE: ruolo_banchina
-#    container_name: client_operatore_ancona
-#    hostname: client-operatore-ancona
-#    restart: "no"
-#
-#    networks:
-#      vpn_net:
-#        ipv4_address: 172.20.11.20
-#
-#    volumes:
-#      - ./certs/devices/D-001:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=operatore_ancona
-#      - CLIENT_ROLE=ruolo_banchina
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=operatore_ancona
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-#
-#  client_capitano_claudia:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: capitano_claudia
-#        CLIENT_ROLE: ruolo_equipaggio
-#    container_name: client_capitano_claudia
-#    hostname: client-capitano-claudia
-#    restart: "no"
-#
-#    networks:
-#      satellite_net:
-#        ipv4_address: 172.20.12.21
-#
-#    volumes:
-#      - ./certs/devices/D-002:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=capitano_claudia
-#      - CLIENT_ROLE=ruolo_equipaggio
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=capitano_claudia
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-#
-#  client_soc_admin:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: soc_admin
-#        CLIENT_ROLE: ruolo_gestione_flotta
-#    container_name: client_soc_admin
-#    hostname: client-soc-admin
-#    restart: "no"
-#
-#    networks:
-#      corporate_net:
-#        ipv4_address: 172.20.10.20
-#
-#    volumes:
-#      - ./certs/devices/D-SOC:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=soc_admin
-#      - CLIENT_ROLE=ruolo_gestione_flotta
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=soc_admin
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-#
-#  client_intruso:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: intruso
-#        CLIENT_ROLE: ruolo_non_autorizzato
-#    container_name: client_intruso
-#    hostname: client-intruso
-#    restart: "no"
-#
-#    networks:
-#      public_net:
-#        ipv4_address: 172.20.13.21
-#
-#    volumes:
-#      - ./certs/devices/D-001:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=intruso
-#      - CLIENT_ROLE=ruolo_non_autorizzato
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=intruso
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
+
+  client_operatore_ancona:
+    build:
+      context: ./services/clients
+      dockerfile: Dockerfile
+      args:
+        CLIENT_TYPE: operatore_ancona
+        CLIENT_ROLE: ruolo_banchina
+    container_name: client_operatore_ancona
+    hostname: client-operatore-ancona
+    restart: "no"
+
+    networks:
+      vpn_net:
+        ipv4_address: 172.20.11.20
+
+    volumes:
+      - ./certs/devices/D-001:/certs/device:ro
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./services/clients/scripts:/scripts:ro
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DB_NAME=maritime_zta
+      - CLIENT_NAME=operatore_ancona
+      - CLIENT_ROLE=ruolo_banchina
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      - USER_ID=operatore_ancona
+      - CA_CERT=/ca/ca.crt
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    command: ["tail", "-f", "/dev/null"]
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_capitano_claudia:
+    build:
+      context: ./services/clients
+      dockerfile: Dockerfile
+      args:
+        CLIENT_TYPE: capitano_claudia
+        CLIENT_ROLE: ruolo_equipaggio
+    container_name: client_capitano_claudia
+    hostname: client-capitano-claudia
+    restart: "no"
+
+    networks:
+      satellite_net:
+        ipv4_address: 172.20.12.21
+
+    volumes:
+      - ./certs/devices/D-002:/certs/device:ro
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./services/clients/scripts:/scripts:ro
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DB_NAME=maritime_zta
+      - CLIENT_NAME=capitano_claudia
+      - CLIENT_ROLE=ruolo_equipaggio
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      - USER_ID=capitano_claudia
+      - CA_CERT=/ca/ca.crt
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    command: ["tail", "-f", "/dev/null"]
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_soc_admin:
+    build:
+      context: ./services/clients
+      dockerfile: Dockerfile
+      args:
+        CLIENT_TYPE: soc_admin
+        CLIENT_ROLE: ruolo_gestione_flotta
+    container_name: client_soc_admin
+    hostname: client-soc-admin
+    restart: "no"
+
+    networks:
+      corporate_net:
+        ipv4_address: 172.20.10.20
+
+    volumes:
+      - ./certs/devices/D-SOC:/certs/device:ro
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./services/clients/scripts:/scripts:ro
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DB_NAME=maritime_zta
+      - CLIENT_NAME=soc_admin
+      - CLIENT_ROLE=ruolo_gestione_flotta
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      - USER_ID=soc_admin
+      - CA_CERT=/ca/ca.crt
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    command: ["tail", "-f", "/dev/null"]
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  client_intruso:
+    build:
+      context: ./services/clients
+      dockerfile: Dockerfile
+      args:
+        CLIENT_TYPE: intruso
+        CLIENT_ROLE: ruolo_non_autorizzato
+    container_name: client_intruso
+    hostname: client-intruso
+    restart: "no"
+
+    networks:
+      public_net:
+        ipv4_address: 172.20.13.21
+
+    volumes:
+      - ./certs/devices/D-001:/certs/device:ro
+      - ./certs/ca/ca.crt:/ca/ca.crt:ro
+      - ./services/clients/scripts:/scripts:ro
+
+    environment:
+      - ENVOY_HOST=pep_gateway
+      - ENVOY_PORT=8443
+      - DB_NAME=maritime_zta
+      - CLIENT_NAME=intruso
+      - CLIENT_ROLE=ruolo_non_autorizzato
+      - CLIENT_CERT=/certs/device/device.crt
+      - CLIENT_KEY=/certs/device/device.key
+      - USER_ID=intruso
+      - CA_CERT=/ca/ca.crt
+
+    depends_on:
+      pep_gateway:
+        condition: service_started
+
+    command: ["tail", "-f", "/dev/null"]
+    profiles:
+      - testing
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 # ==============================================================================
 # NETWORKS
@@ -876,28 +869,28 @@ networks:
     name: maritime-zta_corporate
     ipam:
       config:
-        - subnet: ${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
+        - subnet: 172.20.10.0/24
 
   vpn_net:
     driver: bridge
     name: maritime-zta_vpn
     ipam:
       config:
-        - subnet: ${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+        - subnet: 172.20.11.0/24
 
   satellite_net:
     driver: bridge
     name: maritime-zta_satellite
     ipam:
       config:
-        - subnet: ${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+        - subnet: 172.20.12.0/24
 
   public_net:
     driver: bridge
     name: maritime-zta_public
     ipam:
       config:
-        - subnet: ${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
+        - subnet: 172.20.13.0/24
 
   zerotrust_net:
     driver: bridge
