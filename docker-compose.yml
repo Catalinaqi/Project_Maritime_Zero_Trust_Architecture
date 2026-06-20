@@ -34,7 +34,6 @@ services:
       #- ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
       - ./configs/opa/data:/opa_data
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater
-      - ./configs/opa/data/risk_data:/opa_data
 
       # Splunk attualmente usa il certificato auto-generato `SplunkServerDefaultCert`
       # -> per usare il nostro certificato CA è necessario implementare
@@ -57,7 +56,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 240s
 
     logging:
       driver: "json-file"
