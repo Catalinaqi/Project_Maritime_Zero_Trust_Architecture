@@ -1,31 +1,37 @@
 #!/usr/sbin/nft -f
 
 # =============================================================================
-# MARITIME ZTA - NFTABLES FIREWALL RULES
-#
-# This rules uses variables from the container environment
-# firewall_perimeter - NFTABLES_ prefix.
-# They are substituted at startup by envsubst in entrypoint.sh.
-#
-# Variables used in this file:
-#   NFTABLES_ENVOY_IP           - IP of the PEP gateway (Envoy)
-#   NFTABLES_OPA_IP             - IP of the PDP engine (OPA)
-#   NFTABLES_MONGODB_IP         - IP of the primary database (MongoDB)
-#   NFTABLES_API_IP             - IP of the API backend
-#   NFTABLES_SPLUNK_IP          - IP of the SIEM (Splunk)
-#   NFTABLES_CORPORATE_NET      - Corporate subnet (CIDR)
-#   NFTABLES_PEP_PORT           - Port exposed by PEP (Envoy listener)
-#   NFTABLES_OPA_PORTS          - Ports of OPA (set notation, e.g. {8181,9191})
-#   NFTABLES_MONGO_PORT         - Port of MongoDB
-#   NFTABLES_API_PORT           - Port of API backend
-#   NFTABLES_SIEM_HEC_PORT      - Splunk HEC port
-#   NFTABLES_SIEM_WEB_PORT      - Splunk Web UI port
-#   NFTABLES_ENVOY_ADMIN_PORT   - Envoy admin interface port
+# MARITIME ZTA - REGOLE DEL FIREWALL NFTABLES (MODO INLINE IPS - NAT FUNNEL)
 # =============================================================================
 
 flush ruleset
 
-table inet filter {
+# ============================================
+# TABELLA: ip nat (Embudo hacia Snort)
+# ============================================
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+
+        # 1. Tráfico Perimetral: Redirigir el tráfico dirigido a Envoy hacia Snort
+        ip saddr { ${NFTABLES_VPN_NET}, ${NFTABLES_SATELLITE_NET}, ${NFTABLES_CORPORATE_NET} } tcp dport ${NFTABLES_PEP_PORT} dnat to ${NFTABLES_SNORT_IP}:${NFTABLES_PEP_PORT}
+
+        # 2. Tráfico Core: Redirigir el tráfico dirigido a MongoDB hacia Snort
+        ip saddr { ${NFTABLES_ENVOY_IP}, ${NFTABLES_API_IP} } ip daddr ${NFTABLES_MONGODB_IP} tcp dport ${NFTABLES_MONGO_PORT} dnat to ${NFTABLES_SNORT_IP}:${NFTABLES_MONGO_PORT}
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+
+        # Enmascarar el tráfico que sale de Snort para que las respuestas vuelvan a él
+        ip saddr ${NFTABLES_SNORT_IP} masquerade
+    }
+}
+
+# ============================================
+# TABELLA: ip filter (Solo IPv4)
+# ============================================
+table ip filter {
 
     chain input {
         type filter hook input priority 0; policy drop;
@@ -33,52 +39,65 @@ table inet filter {
         iif lo accept
         ct state established,related accept
         ip protocol icmp accept
-        ip6 nexthdr ipv6-icmp accept
 
-        # CAMBIO ULOGD: Enviamos a userspace (group 0) en lugar del kernel
         log prefix "[NFT-INPUT] DROP: " group 0 drop
     }
 
     chain forward {
         type filter hook forward priority 0; policy drop;
 
+        # Gruppo 0: Stato e ICMP
         ct state established,related accept
         ip protocol icmp accept
-        ip6 nexthdr ipv6-icmp accept
 
-        # RULE 1: Allow only PEP port as legitimate ZTA entry point
-        # CAMBIO SEGURIDAD: Añadido ip daddr para prevenir Movimiento Lateral
-        ip daddr ${NFTABLES_ENVOY_IP} tcp dport ${NFTABLES_PEP_PORT} accept
+        # ====================================================================
+        # GRUPPO 1: ISPEZIONE DEL PERIMETRO (Traffico Utenti -> SNORT -> Envoy)
+        # ====================================================================
 
-        # RULE 2: Allow Envoy → OPA policy queries; block others
-        ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_OPA_IP} tcp dport ${NFTABLES_OPA_PORTS} accept
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_OPA_PORTS} log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " group 0 drop
+        # Consenti il traffico TCP dalle reti autorizzate verso SNORT (redirigido por NAT)
+        ip saddr { ${NFTABLES_VPN_NET}, ${NFTABLES_SATELLITE_NET}, ${NFTABLES_CORPORATE_NET} } ip daddr ${NFTABLES_SNORT_IP} tcp dport ${NFTABLES_PEP_PORT} accept
 
-        # RULE 3: Allow Envoy → API backend; block others
-        ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_API_IP} tcp dport ${NFTABLES_API_PORT} accept
-        # CAMBIO ULOGD: group 0
-        tcp dport ${NFTABLES_API_PORT} log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " group 0 drop
+        # Consenti a Snort di inoltrare il traffico ispezionato verso il vero Envoy
+        ip saddr ${NFTABLES_SNORT_IP} ip daddr ${NFTABLES_ENVOY_IP} tcp dport ${NFTABLES_PEP_PORT} accept
 
-        # RULE 4: Allow API backend → MongoDB; block others
-        ip saddr ${NFTABLES_API_IP} ip daddr ${NFTABLES_MONGODB_IP} tcp dport ${NFTABLES_MONGO_PORT} accept
-        # CAMBIO ULOGD: group 0
+        # ====================================================================
+        # GRUPPO 2: PROTEZIONE DEL CORE DATI (Traffico API -> SNORT -> MongoDB)
+        # ====================================================================
+
+        # Consenti l'accesso dal Gateway/API verso SNORT (redirigido por NAT)
+        ip saddr { ${NFTABLES_ENVOY_IP}, ${NFTABLES_API_IP} } ip daddr ${NFTABLES_SNORT_IP} tcp dport ${NFTABLES_MONGO_PORT} accept
+
+        # Consenti a Snort di inoltrare il traffico ispezionato verso il vero MongoDB
+        ip saddr ${NFTABLES_SNORT_IP} ip daddr ${NFTABLES_MONGODB_IP} tcp dport ${NFTABLES_MONGO_PORT} accept
+
+        # Blocca tentativi diretti (Bypass)
         tcp dport ${NFTABLES_MONGO_PORT} log prefix "[CRITICAL] DIRECT_DB_ATTEMPT: " group 0 drop
 
-        # RULE 5: Explicitly block Envoy admin port from outside
-        # CAMBIO ULOGD: group 0
+        # ====================================================================
+        # GRUPPO 3: PREVENZIONE DEL MOVIMENTO LATERALE
+        # ====================================================================
+        ip saddr ${NFTABLES_VPN_NET} ip daddr ${NFTABLES_SATELLITE_NET} log prefix "[CRITICAL] LATERAL_VPN_SAT: " group 0 drop
+        ip saddr ${NFTABLES_SATELLITE_NET} ip daddr ${NFTABLES_VPN_NET} log prefix "[CRITICAL] LATERAL_SAT_VPN: " group 0 drop
+
+        # ====================================================================
+        # GRUPPO 4: REGOLE DEL PIANO DI CONTROLLO
+        # ====================================================================
+        ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_OPA_IP} tcp dport ${NFTABLES_OPA_PORTS} accept
+        tcp dport ${NFTABLES_OPA_PORTS} log prefix "[CRITICAL] UNAUTHORIZED_OPA_ACCESS: " group 0 drop
+
+        ip saddr ${NFTABLES_ENVOY_IP} ip daddr ${NFTABLES_API_IP} tcp dport ${NFTABLES_API_PORT} accept
+        tcp dport ${NFTABLES_API_PORT} log prefix "[CRITICAL] DIRECT_API_ATTEMPT: " group 0 drop
+
         tcp dport ${NFTABLES_ENVOY_ADMIN_PORT} log prefix "[CRITICAL] ENVOY_ADMIN_ATTEMPT: " group 0 drop
 
-        # RULE 6: Allow any container → Splunk HEC (for log forwarding)
         ip daddr ${NFTABLES_SPLUNK_IP} tcp dport ${NFTABLES_SIEM_HEC_PORT} accept
 
-        # RULE 7: Allow only corporate subnet to Splunk Web UI
         ip saddr ${NFTABLES_CORPORATE_NET} ip daddr ${NFTABLES_SPLUNK_IP} tcp dport ${NFTABLES_SIEM_WEB_PORT} accept
-        # CAMBIO ULOGD: group 0
         tcp dport ${NFTABLES_SIEM_WEB_PORT} log prefix "[WARNING] UNAUTHORIZED_SPLUNK_UI: " group 0 drop
 
-        # RULE 8: Default deny - log and drop everything else
-        # CAMBIO ULOGD: group 0
+        # ====================================================================
+        # GRUPPO 5: CHIUSURA DI SICUREZZA
+        # ====================================================================
         log prefix "[NFT-FWD] DROP: " group 0 drop
     }
 

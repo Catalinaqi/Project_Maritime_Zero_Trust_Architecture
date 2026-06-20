@@ -46,6 +46,8 @@ log_info "[STEP-2] Start - Validating NFTables environment variables"
 REQUIRED_VARS=(
     NFTABLES_ENVOY_IP NFTABLES_OPA_IP NFTABLES_MONGODB_IP
     NFTABLES_API_IP NFTABLES_SPLUNK_IP NFTABLES_CORPORATE_NET
+    NFTABLES_VPN_NET NFTABLES_SATELLITE_NET NFTABLES_PUBLIC_NET
+    NFTABLES_SNORT_IP
     NFTABLES_PEP_PORT NFTABLES_OPA_PORTS NFTABLES_MONGO_PORT
     NFTABLES_API_PORT NFTABLES_SIEM_HEC_PORT NFTABLES_SIEM_WEB_PORT
     NFTABLES_ENVOY_ADMIN_PORT
@@ -101,12 +103,15 @@ log_info "[STEP-5] Start - Loading nftables rules"
 nft -f "$RULES_RENDERED" || fail "[STEP-5] Error loading rules - fail secure"
 
 # Verify table and chains exist
-nft list table inet filter > /dev/null 2>&1 || fail "[STEP-5] Table 'inet filter' not found"
+#nft list table inet filter > /dev/null 2>&1 || fail "[STEP-5] Table 'inet filter not found"
+nft list table ip filter > /dev/null 2>&1 || fail "[STEP-5] Table 'ip filter' not found"
 
 # Check the DROP policy ignoring uppercase/lowercase and spaces (-iq)
 # nft for alpine:3.19 -> -q (quiet): It is mandatory
 # nft for alpine:3.19 -> -i (ignore-case / ignore uppercase letters) :
-nft list chain inet filter forward | grep -iq "policy drop" \
+#nft list chain inet filter forward | grep -iq "policy drop" \
+#nft list chain ip filter forward | grep -iq "policy drop" \
+nft list chain ip filter forward | grep -i "policy drop" > /dev/null \
     || fail "[STEP-5] FORWARD policy drop not active - fail secure"
 
 log_info "[STEP-5] Rules loaded and verified - OK"
@@ -214,7 +219,8 @@ forward_to_splunk() {
             "$(echo "$line" | sed 's/"/\\"/g')" \
             "$(hostname)")
 
-        curl -s --cacert /ca/ca.crt --max-time 5 -o /dev/null \
+        #curl -s --cacert /ca/ca.crt --max-time 5 -o /dev/null \
+        curl -s -k --max-time 5 -o /dev/null \
             -H "Authorization: Splunk $HEC_TOKEN" \
             -H "Content-Type: application/json" \
             -d "$payload" \
@@ -232,7 +238,8 @@ forward_to_splunk
 log_info "[STEP-7] Start - Monitoring loop every 60 seconds"
 
 while true; do
-    if nft list table inet filter > /dev/null 2>&1; then
+    #if nft list table inet filter > /dev/null 2>&1; then
+    if nft list table ip filter > /dev/null 2>&1; then
         log_info "[STEP-7] Rules active - OK"
     else
         log_warn "[STEP-7] Rules lost - reloading..."

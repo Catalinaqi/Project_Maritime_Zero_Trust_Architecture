@@ -27,7 +27,7 @@ else
     exit 1
 fi
 
-# 3. Levantar los emuladores TPM
+# 3. Avviare gli emulatori TPM
 echo -e "\n${GREEN}[3/6] Levantando servicios TPM (swtpm)...${NC}"
 docker compose --profile testing up -d --build swtpm_d001 swtpm_d002 swtpm_dsoc
 
