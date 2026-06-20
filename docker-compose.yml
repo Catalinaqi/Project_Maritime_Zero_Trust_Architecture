@@ -217,7 +217,7 @@ services:
       - ./configs/opa/data/risk_data:/policies/risk_data
 
     environment:
-      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
+      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
       - MONGODB_HOST=db_primary
       - MONGODB_PORT=27017
