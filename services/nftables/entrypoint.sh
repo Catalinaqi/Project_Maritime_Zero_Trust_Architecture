@@ -78,6 +78,45 @@ done
 log_info "[STEP-2] All NFTables variables present - OK"
 
 # =============================================================================
+# STEP 2.5: Rename network interfaces based on IP variables
+# =============================================================================
+log_info "[STEP-2.5] Start - Renaming network interfaces"
+
+rename_interface() {
+    local TARGET_IP=$1
+    local NEW_NAME=$2
+
+    if [ -z "$TARGET_IP" ]; then
+        log_warn "[STEP-2.5] Target IP missing for $NEW_NAME. Skipping."
+        return
+    fi
+
+    local CURRENT_NAME=$(ip -o -4 addr show | awk -v ip="$TARGET_IP" '$4 ~ "^"ip"/" {print $2}')
+
+    if [ ! -z "$CURRENT_NAME" ] && [ "$CURRENT_NAME" != "$NEW_NAME" ]; then
+        log_info "[STEP-2.5] Renaming $CURRENT_NAME to $NEW_NAME (IP: $TARGET_IP)"
+        ip link set dev "$CURRENT_NAME" down
+        ip link set dev "$CURRENT_NAME" name "$NEW_NAME"
+        ip link set dev "$NEW_NAME" up
+    elif [ "$CURRENT_NAME" = "$NEW_NAME" ]; then
+        log_info "[STEP-2.5] Interface already named $NEW_NAME (IP: $TARGET_IP)"
+    else
+        log_warn "[STEP-2.5] Could not find interface for IP: $TARGET_IP"
+    fi
+}
+
+# Mapeo usando variables de entorno para IPs y Nombres de Interfaz (Cero Hardcode)
+rename_interface "${NFTABLES_FW_ZT_IP}" "${NFTABLES_FW_ZT_IFACE}"
+rename_interface "${NFTABLES_FW_BACKEND_IP}" "${NFTABLES_FW_BACKEND_IFACE}"
+rename_interface "${NFTABLES_FW_MONITOR_IP}" "${NFTABLES_FW_MONITOR_IFACE}"
+rename_interface "${NFTABLES_FW_CORPORATE_IP}" "${NFTABLES_FW_CORPORATE_IFACE}"
+rename_interface "${NFTABLES_FW_VPN_IP}" "${NFTABLES_FW_VPN_IFACE}"
+rename_interface "${NFTABLES_FW_SATELLITE_IP}" "${NFTABLES_FW_SATELLITE_IFACE}"
+rename_interface "${NFTABLES_FW_PUBLIC_IP}" "${NFTABLES_FW_PUBLIC_IFACE}"
+
+log_info "[STEP-2.5] Network interfaces renaming completed"
+
+# =============================================================================
 # STEP 3: Render rules.nft with envsubst
 # =============================================================================
 log_info "[STEP-3] Start - Resolving variables in rules.nft"
