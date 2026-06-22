@@ -1,19 +1,73 @@
+# =============================================================================
+# OPEN POLICY AGENT CONFIGURATION
+# Maritime Zero Trust Architecture
+# =============================================================================
+
+
+# =============================================================================
+# PLUGIN ENVOY EXTERNAL AUTHORIZATION
+# =============================================================================
+#
+# Envoy interroga OPA tramite gRPC sulla porta 9191.
+#
+# Il percorso indica la decisione Rego che deve essere valutata:
+#
+# data.envoy.authz.allow
+# =============================================================================
+
 plugins:
   envoy_ext_authz_grpc:
-    addr: :9191
+    # Porta gRPC interna utilizzata esclusivamente da Envoy.
+    addr: ":9191"
+
+    # Decisione Rego utilizzata dal plugin.
     path: envoy/authz/allow
+
+
+# =============================================================================
+# SERVIZIO SPLUNK HEC
+# =============================================================================
+#
+# OPA utilizza questo endpoint per inviare i decision log a Splunk.
+#
+# Splunk HEC è configurato in HTTP sulla porta 8088.
+# =============================================================================
 
 services:
   splunk_hec:
-    url: http://siem_central:8088
-    allow_insecure_tls: true
+    # Nome Docker del container Splunk.
+    url: "http://siem_central:8088"
+
+    # Header richiesto da Splunk HTTP Event Collector.
+    #
+    # Questo token deve corrispondere al token definito in:
+    #
+    # configs/splunk/apps/opa_risk_updater/local/inputs.conf
     headers:
       Authorization: "Splunk f34d1b82-628b-4b2a-8951-b8401314b875"
 
+
+# =============================================================================
+# DECISION LOG
+# =============================================================================
+#
+# Ogni decisione allow/deny viene:
+#
+# 1. scritta anche nei log del container;
+# 2. inviata a Splunk tramite HEC.
+# =============================================================================
+
 decision_logs:
+  # Scrive la decisione anche nei log standard di OPA.
   console: true
+
+  # Nome del servizio configurato nella sezione services.
   service: splunk_hec
-  resource: /services/collector/raw?sourcetype=opa_decision&index=main
+
+  # Endpoint Splunk HEC utilizzato per gli eventi raw.
+  resource: "/services/collector/raw?sourcetype=opa_decision&index=main"
+
+  # Intervallo con il quale OPA raggruppa e invia i decision log.
   reporting:
     min_delay_seconds: 5
     max_delay_seconds: 10

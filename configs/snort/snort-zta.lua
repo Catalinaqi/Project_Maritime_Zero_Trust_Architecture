@@ -1,75 +1,202 @@
 -- =============================================================================
--- Snort 3 IDS Configuration (ZTA Master Template)
+-- SNORT 3 IDS - MARITIME ZERO TRUST ARCHITECTURE
 -- =============================================================================
--- Propósito: Configuración principal del sensor IDS para arquitectura Zero Trust.
--- Nota: Este archivo usa sintaxis ${VAR} para ser procesado por envsubst
---       en el entrypoint antes de arrancar Snort.
+--
+-- Questo file rappresenta il template principale della configurazione Snort.
+--
+-- Le variabili nella forma ${NOME_VARIABILE} vengono sostituite
+-- dall'entrypoint tramite envsubst prima dell'avvio di Snort.
+--
+-- Snort opera come IDS passivo:
+--
+-- client -> firewall_perimeter -> pep_gateway
+--                   |
+--                   +-> Snort osserva il traffico
+--
+-- Snort non riceve il traffico come server e non effettua alcun inoltro.
 -- =============================================================================
 
--- STEP 1: DAQ (Data Acquisition)
--- Define cómo Snort captura los paquetes de la red virtual de Docker.
--- Se apunta explícitamente al directorio de compilación para evitar fallos de pcap.
--- pcap -> afpacket
+
+-- =============================================================================
+-- 1. DATA ACQUISITION - DAQ
+-- =============================================================================
+--
+-- Il modulo PCAP permette a Snort di osservare passivamente il traffico
+-- presente nelle interfacce di rete del firewall.
+--
+-- Poiché il container Snort condivide il namespace di rete del firewall,
+-- l'interfaccia "any", indicata nell'entrypoint, comprende tutte le
+-- interfacce collegate a firewall_perimeter.
+--
+-- Non viene utilizzata la modalità inline e non viene utilizzato -Q.
+-- =============================================================================
+
 daq = {
-    module_dirs = { '/usr/local/lib/daq' },
-    modules = { { name = 'afpacket', mode = 'passive' } }
+    module_dirs = {
+        '/usr/local/lib/daq'
+    },
+
+    modules = {
+        {
+            name = 'afpacket',
+            mode = 'passive'
+        }
+    }
 }
 
--- STEP 2: Pattern Matching Engine
--- Motor de búsqueda de patrones (Deep Packet Inspection). 'ac_bnfa' ofrece
--- un excelente balance entre velocidad de detección y consumo de RAM.
-search_engine = { search_method = 'ac_bnfa' }
 
--- STEP 3: Stream Reassembly
--- Ensamblaje de flujos. Vital para evitar evasiones de fragmentación L4/L7.
--- El timeout de TCP se reduce a 60s para liberar memoria rápidamente en el contenedor.
-stream = { }
-stream_tcp = { session_timeout = 60 }
-stream_udp = { }
-stream_icmp = { }
-stream_ip = { }
+-- =============================================================================
+-- 2. MOTORE DI RICERCA DEI PATTERN
+-- =============================================================================
+--
+-- Configura il motore utilizzato per cercare le sequenze definite
+-- all'interno delle regole Snort.
+-- =============================================================================
 
--- STEP 4: Application Inspectors & Binder
--- Módulos de inspección de capa de aplicación. Necesarios para que Snort
--- entienda el tráfico HTTP en claro y aplique las reglas correctamente.
-http_inspect = { }
-binder = { }
+search_engine = {
+    search_method = 'ac_bnfa'
+}
 
--- STEP 5: Logging / SIEM Integration
--- Generación de alertas. Configurado estrictamente en JSON para facilitar
--- el parseo inmediato del HEC de Splunk y la extracción de entidades.
--- old1: fields = { 'timestamp', 'pkt_num', 'proto', 'pkt_gen', 'dir', 'src_addr', 'src_port', 'dst_addr', 'dst_port', 'action', 'msg', 'rule' }
--- old2: fields = 'timestamp pkt_num proto pkt_gen pkt_len dir src_ap dst_ap rule msg action'
--- old3: fields = { 'timestamp', 'pkt_num', 'proto', 'pkt_gen', 'pkt_len', 'dir', 'src_addr', 'src_port', 'dst_addr', 'dst_port', 'rule', 'msg', 'action' }
+
+-- =============================================================================
+-- 3. RIASSEMBLAGGIO DEI FLUSSI
+-- =============================================================================
+--
+-- Permette a Snort di ricostruire correttamente i flussi di rete.
+-- Questo limita le tecniche di evasione basate su frammentazione
+-- e segmentazione dei pacchetti.
+-- =============================================================================
+
+stream = {
+}
+
+stream_tcp = {
+    -- Le sessioni TCP inattive vengono rimosse dopo 60 secondi.
+    session_timeout = 60
+}
+
+stream_udp = {
+}
+
+stream_icmp = {
+}
+
+stream_ip = {
+}
+
+
+-- =============================================================================
+-- 4. ISPETTORI APPLICATIVI
+-- =============================================================================
+--
+-- Abilita gli ispettori necessari per classificare e analizzare
+-- i protocolli applicativi supportati.
+-- =============================================================================
+
+http_inspect = {
+}
+
+binder = {
+}
+
+
+-- =============================================================================
+-- 5. OUTPUT JSON PER SPLUNK
+-- =============================================================================
+--
+-- Le alert vengono salvate nel file:
+--
+-- /var/log/snort/alert_json.txt
+--
+-- Il volume snort_logs viene condiviso con Splunk, che legge il file
+-- attraverso la configurazione inputs.conf.
+-- =============================================================================
+
 alert_json = {
+    -- Scrive gli eventi su file.
     file = true,
+
+    -- Limite del file di log gestito dal modulo.
     limit = 10,
-    fields = 'timestamp pkt_num proto pkt_gen pkt_len dir src_ap dst_ap rule action'
+
+    -- Campi inseriti in ogni evento JSON.
+    fields = table.concat({
+        'timestamp',
+        'pkt_num',
+        'proto',
+        'pkt_gen',
+        'pkt_len',
+        'dir',
+        'src_ap',
+        'dst_ap',
+        'rule',
+        'action'
+    }, ' ')
 }
 
--- STEP 6: IPS Configuration (Variables & Rules)
--- Define el modelo topológico ZTA (Redes y Puertos) inyectado dinámicamente
--- desde el docker-compose.yml y carga el archivo maestro de reglas.
+
+-- =============================================================================
+-- 6. VARIABILI DI RETE E REGOLE IPS
+-- =============================================================================
+--
+-- Le variabili vengono lette dal docker-compose.yml e sostituite
+-- dall'entrypoint prima dell'avvio di Snort.
+-- =============================================================================
+
 ips = {
     variables = {
+
+        -- ---------------------------------------------------------------------
+        -- Reti della Maritime Zero Trust Architecture
+        -- ---------------------------------------------------------------------
         nets = {
-            HOME_NET      = '${ZTA_HOME_NET}',
-            EXTERNAL_NET  = '!${ZTA_HOME_NET}',
-            PUBLIC_NET    = '${ZTA_PUBLIC_NET}',
-            VPN_NET       = '${ZTA_VPN_NET}',
+            -- Insieme delle reti considerate appartenenti all'architettura.
+            HOME_NET = '${ZTA_HOME_NET}',
+
+            -- Tutto ciò che non appartiene a HOME_NET.
+            EXTERNAL_NET = '!${ZTA_HOME_NET}',
+
+            -- Rete pubblica e non affidabile.
+            PUBLIC_NET = '${ZTA_PUBLIC_NET}',
+
+            -- Rete utilizzata dagli operatori tramite VPN.
+            VPN_NET = '${ZTA_VPN_NET}',
+
+            -- Rete utilizzata dai dispositivi satellitari.
             SATELLITE_NET = '${ZTA_SATELLITE_NET}',
+
+            -- Rete corporate utilizzata dal SOC.
             CORPORATE_NET = '${ZTA_CORPORATE_NET}',
-            BACKEND_NET   = '${ZTA_BACKEND_NET}'
+
+            -- Rete interna contenente API e MongoDB.
+            BACKEND_NET = '${ZTA_BACKEND_NET}'
         },
+
+        -- ---------------------------------------------------------------------
+        -- Porte dei servizi
+        -- ---------------------------------------------------------------------
         ports = {
-            PEP_PORT   = '${ZTA_PEP_PORT}',
-            OPA_PORTS  = '${ZTA_OPA_PORTS}',
+            -- Porta mTLS di Envoy.
+            PEP_PORT = '${ZTA_PEP_PORT}',
+
+            -- Porte REST e gRPC di OPA.
+            OPA_PORTS = '${ZTA_OPA_PORTS}',
+
+            -- Porta MongoDB.
             MONGO_PORT = '${ZTA_MONGO_PORT}',
-            API_PORT   = '${ZTA_API_PORT}',
+
+            -- Porta dell'API backend.
+            API_PORT = '${ZTA_API_PORT}',
+
+            -- Porte Web e HEC di Splunk.
             SIEM_PORTS = '${ZTA_SIEM_PORTS}',
+
+            -- Porta amministrativa di Envoy.
             ADMIN_PORT = '${ZTA_ADMIN_PORT}'
         }
     },
+
+    -- Carica il file contenente le regole personalizzate del progetto.
     rules = [[
         include /etc/snort/snort-zta.rules
     ]]

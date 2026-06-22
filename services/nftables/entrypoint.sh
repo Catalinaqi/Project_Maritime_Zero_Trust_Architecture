@@ -44,13 +44,23 @@ log_info "[STEP-1] Pre-flight checks completed OK"
 log_info "[STEP-2] Start - Validating NFTables environment variables"
 
 REQUIRED_VARS=(
-    NFTABLES_ENVOY_IP NFTABLES_OPA_IP NFTABLES_MONGODB_IP
-    NFTABLES_API_IP NFTABLES_SPLUNK_IP NFTABLES_CORPORATE_NET
-    NFTABLES_VPN_NET NFTABLES_SATELLITE_NET NFTABLES_PUBLIC_NET
-    NFTABLES_SNORT_IP
-    NFTABLES_PEP_PORT NFTABLES_OPA_PORTS NFTABLES_MONGO_PORT
-    NFTABLES_API_PORT NFTABLES_SIEM_HEC_PORT NFTABLES_SIEM_WEB_PORT
-    NFTABLES_ENVOY_ADMIN_PORT
+    # Indirizzo reale del PEP Envoy nella rete Zero Trust.
+    NFTABLES_ENVOY_IP
+
+    # Indirizzi del firewall nelle quattro reti dei client.
+    NFTABLES_FW_CORPORATE_IP
+    NFTABLES_FW_VPN_IP
+    NFTABLES_FW_SATELLITE_IP
+    NFTABLES_FW_PUBLIC_IP
+
+    # Sottoreti dalle quali provengono i client.
+    NFTABLES_CORPORATE_NET
+    NFTABLES_VPN_NET
+    NFTABLES_SATELLITE_NET
+    NFTABLES_PUBLIC_NET
+
+    # Porta mTLS esposta da Envoy.
+    NFTABLES_PEP_PORT
 )
 
 ALL_OK=true
@@ -72,7 +82,25 @@ log_info "[STEP-2] All NFTables variables present - OK"
 # =============================================================================
 log_info "[STEP-3] Start - Resolving variables in rules.nft"
 
-envsubst < "$RULES_SRC" > "$RULES_RENDERED"
+# Elenco esplicito delle variabili da sostituire nel file rules.nft.
+#
+# In questo modo envsubst modifica solamente i placeholder realmente
+# appartenenti alla configurazione NFTables.
+ENV_SUBST_VARS='
+${NFTABLES_ENVOY_IP}
+${NFTABLES_FW_CORPORATE_IP}
+${NFTABLES_FW_VPN_IP}
+${NFTABLES_FW_SATELLITE_IP}
+${NFTABLES_FW_PUBLIC_IP}
+${NFTABLES_CORPORATE_NET}
+${NFTABLES_VPN_NET}
+${NFTABLES_SATELLITE_NET}
+${NFTABLES_PUBLIC_NET}
+${NFTABLES_PEP_PORT}
+'
+
+# Genera il file definitivo delle regole.
+envsubst "$ENV_SUBST_VARS" < "$RULES_SRC" > "$RULES_RENDERED"
 
 # Check for any unresolved ${...}
 if grep -q '\${' "$RULES_RENDERED"; then

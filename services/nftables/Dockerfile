@@ -27,6 +27,6 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD nft list table inet filter > /dev/null 2>&1 || exit 1
+    CMD nft list table ip filter > /dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]

@@ -174,69 +174,127 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================================================
-  # LAYER 3: DECISION - OPA Policy Engine
+    # ============================================================================
+  # LAYER 2: POLICY DECISION POINT - OPEN POLICY AGENT
   # ============================================================================
 
   pdp_engine:
+    # Immagine OPA contenente il plugin Envoy External Authorization.
     image: openpolicyagent/opa:latest-envoy
+
+    # Nome assegnato al container.
     container_name: pdp_engine
+
+    # Nome host interno.
     hostname: opa-policy
+
+    # Riavvia OPA automaticamente.
     restart: unless-stopped
+
+    # Directory di lavoro interna.
     working_dir: /usr/share/opa-app
 
     networks:
+      # Rete attraverso la quale Envoy comunica con OPA.
       zerotrust_net:
         ipv4_address: 172.20.2.6
+
+      # Rete utilizzata da OPA per inviare i decision log a Splunk.
       monitoring_net:
         ipv4_address: 172.20.4.6
-      corporate_net:
-        ipv4_address: 172.20.10.6
-      vpn_net:
-        ipv4_address: 172.20.11.6
-      satellite_net:
-        ipv4_address: 172.20.12.6
-      public_net:
-        ipv4_address: 172.20.13.6
 
+    # La porta REST è pubblicata esclusivamente sull'interfaccia locale
+    # del computer, per consentire i test amministrativi.
+    #
+    # Non è raggiungibile dagli altri computer della rete locale.
     ports:
-      - "8181:8181"
-      - "9191:9191"
+      - "127.0.0.1:8181:8181"
+
+    # Documenta le porte utilizzate internamente.
+    #
+    # 8181: REST API di OPA.
+    # 9191: servizio gRPC ext_authz utilizzato da Envoy.
+    expose:
+      - "8181"
+      - "9191"
 
     volumes:
+      # Configurazione principale di OPA.
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
+
+      # Policy Rego utilizzata per le decisioni.
       - ./configs/opa/policies/test-policy.rego:/policies/test-policy.rego:ro
+
+      # Dati relativi ai ruoli.
       - ./configs/opa/data/roles.json:/policies/roles.json:ro
+
+      # Dati relativi ai dispositivi.
       - ./configs/opa/data/devices.json:/policies/devices.json:ro
+
+      # Dati relativi alle reti.
       - ./configs/opa/data/networks.json:/policies/networks.json:ro
+
+      # Regole di associazione utente, dispositivo e rete.
       - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
 
-      #- ./configs/opa/data/risk_data/risk_scores.json:/policies/risk_scores.json:ro
-      # AGGIUNGI — monta l'intera cartella risk_data
+      # Directory contenente i risk score aggiornati da Splunk.
+      #
+      # Non è impostata come sola lettura perché il file viene aggiornato
+      # dal sistema di gestione dinamica del rischio.
       - ./configs/opa/data/risk_data:/policies/risk_data
 
     environment:
-      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+      # Indirizzo di Splunk HEC.
+      #
+      # La configurazione effettiva dei decision log è definita anche
+      # nel file configs/opa/config.yaml.
+      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
+
+      # Token HEC definito nel file .env.
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+
+      # Parametri MongoDB mantenuti per compatibilità con gli script
+      # e le configurazioni esistenti.
       - MONGODB_HOST=db_primary
       - MONGODB_PORT=27017
 
     command:
-      - "run"
-      - "--server"
-      - "--addr=0.0.0.0:8181"
-      - "--config-file=/config/opa-config.yaml"
-      - "--log-level=debug"
-      - "--log-format=json"
-      - "--watch"
-      - "/policies"
+      # Avvia OPA in modalità server.
+      - run
+
+      # Abilita il server REST.
+      - --server
+
+      # Espone la REST API su tutte le interfacce interne del container.
+      - --addr=0.0.0.0:8181
+
+      # Carica la configurazione del plugin Envoy e dei decision log.
+      - --config-file=/config/opa-config.yaml
+
+      # Livello di log utile per la fase di sviluppo e verifica.
+      - --log-level=debug
+
+      # Formato strutturato dei log.
+      - --log-format=json
+
+      # Ricarica automaticamente policy e dati modificati.
+      - --watch
+
+      # Directory contenente policy e dati.
+      - /policies
 
     depends_on:
+      # Splunk deve essere disponibile per ricevere i decision log.
       siem_central:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD", "/opa", "eval", "1"]
+      # Verifica che il motore OPA sia in grado di valutare un'espressione.
+      test:
+        - CMD
+        - /opa
+        - eval
+        - "1"
       interval: 15s
       timeout: 10s
       retries: 5
@@ -248,56 +306,88 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================================================
+    # ============================================================================
   # LAYER 2: ENFORCEMENT - Envoy Proxy PEP
   # ============================================================================
 
   pep_gateway:
+    # Costruisce l'immagine Envoy con lo script per le route di ritorno.
     build:
       context: ./services/envoy
       dockerfile: Dockerfile
+
     container_name: pep_gateway
     hostname: envoy-gateway
     restart: unless-stopped
 
+    # Envoy deve poter aggiungere le route verso le reti dei client.
+    cap_add:
+      - NET_ADMIN
+
     networks:
+      # Rete condivisa con OPA e firewall.
       zerotrust_net:
         ipv4_address: 172.20.2.7
+
+      # Rete condivisa con il backend API.
       backend_net:
         ipv4_address: 172.20.3.7
-#      corporate_net:
-#        ipv4_address: 172.20.10.7
-#      vpn_net:
-#        ipv4_address: 172.20.11.7
-#      satellite_net:
-#        ipv4_address: 172.20.12.7
-#      public_net:
-#        ipv4_address: 172.20.13.7
-
-    ports:
-      - "8443:8443"
-      - "127.0.0.1:9901:9901"
 
     volumes:
+      # Configurazione principale di Envoy.
       - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+
+      # Filtro Lua che prepara i metadati per OPA.
       - ./configs/envoy/mongo_inspector.lua:/etc/envoy/mongo_inspector.lua:ro
+
+      # Certificato e chiave TLS del server Envoy.
       - ./certs/server:/certs:ro
+
+      # Certificato pubblico della CA.
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
+
+      # Log persistenti di Envoy.
       - envoy_logs:/var/log/envoy
 
     environment:
+      # Indirizzo del firewall nella rete Zero Trust.
+      - FIREWALL_ZEROTRUST_IP=172.20.2.10
+
+      # Sottoreti verso le quali Envoy deve rispondere passando dal firewall.
+      - NETWORK_CORPORATE_SUBNET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
+      - NETWORK_VPN_SUBNET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+      - NETWORK_SATELLITE_SUBNET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+      - NETWORK_PUBLIC_SUBNET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
+
+      # Collegamento a OPA.
       - OPA_HOST=pdp_engine
       - OPA_PORT=9191
+
+      # Collegamento al backend.
       - API_BACKEND_HOST=api_backend
       - API_BACKEND_PORT=3000
-      - SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
+
+      # Collegamento a Splunk.
+      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
       - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
 
-    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    command:
+      - envoy
+      - -c
+      - /etc/envoy/envoy.yaml
+      - --log-level
+      - info
 
     depends_on:
+      # Il firewall deve esistere prima che Envoy aggiunga le route.
+      firewall_perimeter:
+        condition: service_started
+
+      # OPA deve essere disponibile.
       pdp_engine:
         condition: service_healthy
+
+      # Il backend deve essere disponibile.
       api_backend:
         condition: service_healthy
 
@@ -314,7 +404,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================================================
+    # ============================================================================
   # LAYER 1: NETWORK SECURITY - NFTables Firewall
   # ============================================================================
 
@@ -322,58 +412,102 @@ services:
     build:
       context: ./services/nftables
       dockerfile: Dockerfile
+
     container_name: firewall_perimeter
     hostname: nft-firewall
     restart: unless-stopped
 
+    # Il firewall collega le reti dei client con la rete Zero Trust.
     networks:
+      # Rete tra firewall, Envoy e OPA.
       zerotrust_net:
         ipv4_address: 172.20.2.10
+        interface_name: zt0
+
+      # Rete interna di API e MongoDB.
       backend_net:
         ipv4_address: 172.20.3.10
+        interface_name: backend0
+
+      # Rete di monitoraggio e Splunk.
       monitoring_net:
         ipv4_address: 172.20.4.10
+        interface_name: monitor0
+
+      # Rete corporate.
       corporate_net:
         ipv4_address: 172.20.10.10
+        interface_name: corp0
+        aliases:
+          - pep_gateway
+
+      # Rete VPN.
       vpn_net:
         ipv4_address: 172.20.11.10
+        interface_name: vpn0
+        aliases:
+          - pep_gateway
+
+      # Rete satellitare.
       satellite_net:
         ipv4_address: 172.20.12.10
+        interface_name: sat0
+        aliases:
+          - pep_gateway
+
+      # Rete pubblica.
       public_net:
         ipv4_address: 172.20.13.10
+        interface_name: public0
+        aliases:
+          - pep_gateway
 
+    # Permette di caricare le regole NFTables.
     cap_add:
       - NET_ADMIN
 
+    # Abilita il routing tra le reti.
+    sysctls:
+      net.ipv4.ip_forward: "1"
+
     volumes:
+      # Regole definitive del firewall.
       - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
-      #- nftables_logs:/var/log/nftables
-      #- ./certs/ca/ca.crt:/ca/ca.crt:ro
 
     environment:
-      # NFTables - Target Service IPs
-      - NFTABLES_ENVOY_IP=${NFTABLES_ENVOY_IP:-172.20.2.7}
-      - NFTABLES_MONGODB_IP=${NFTABLES_MONGODB_IP:-172.20.3.5}
-      - NFTABLES_SPLUNK_IP=${NFTABLES_SPLUNK_IP:-172.20.4.8}
-      - NFTABLES_OPA_IP=${NFTABLES_OPA_IP:-172.20.2.6}
-      - NFTABLES_API_IP=${NFTABLES_API_IP:-172.20.3.20}
-      - NFTABLES_SNORT_IP=${NFTABLES_SNORT_IP:-172.20.4.11}
-      # NFTables - Target Networks IPs
+      # Envoy reale nella rete Zero Trust.
+      - NFTABLES_ENVOY_IP=172.20.2.7
+
+      # Indirizzi del firewall sulle quattro reti client.
+      - NFTABLES_FW_CORPORATE_IP=172.20.10.10
+      - NFTABLES_FW_VPN_IP=172.20.11.10
+      - NFTABLES_FW_SATELLITE_IP=172.20.12.10
+      - NFTABLES_FW_PUBLIC_IP=172.20.13.10
+
+      # Sottoreti dei client.
       - NFTABLES_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
       - NFTABLES_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
       - NFTABLES_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
       - NFTABLES_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
-      # NFTables - Service Ports
+
+      # Porta mTLS di Envoy.
       - NFTABLES_PEP_PORT=${NFTABLES_PEP_PORT:-8443}
-      - NFTABLES_OPA_PORTS=${NFTABLES_OPA_PORTS:-{8181,9191}}
-      - NFTABLES_MONGO_PORT=${NFTABLES_MONGO_PORT:-27017}
-      - NFTABLES_API_PORT=${NFTABLES_API_PORT:-3000}
-      - NFTABLES_SIEM_HEC_PORT=${NFTABLES_SIEM_HEC_PORT:-8088}
-      - NFTABLES_SIEM_WEB_PORT=${NFTABLES_SIEM_WEB_PORT:-8000}
-      - NFTABLES_ENVOY_ADMIN_PORT=${NFTABLES_ENVOY_ADMIN_PORT:-9901}
-      # NFTables - Splunk Connection
-      - NFTABLES_SPLUNK_HEC_URL=https://siem_central:8088/services/collector/event
-      - NFTABLES_SPLUNK_HEC_TOKEN=${NFTABLES_SPLUNK_HEC_TOKEN}
+
+      # Configurazione Splunk per i log NFTables.
+      - NFTABLES_SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
+      - NFTABLES_SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+
+    healthcheck:
+      # La tabella utilizzata è "ip filter", non "inet filter".
+      test:
+        [
+          "CMD-SHELL",
+          "nft list table ip filter >/dev/null 2>&1 || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
     logging:
       driver: "json-file"
@@ -381,83 +515,97 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================================================
-  # LAYER 1: NETWORK SECURITY - Snort IDS
+   # ============================================================================
+  # LAYER 1: NETWORK SECURITY - SNORT IDS PASSIVO
   # ============================================================================
 
   ids_network_monitor:
+    # Costruisce Snort utilizzando il Dockerfile presente in services/snort.
     build:
       context: ./services/snort
       dockerfile: Dockerfile
+
+    # Nome assegnato al container.
     container_name: ids_network_monitor
-    hostname: snort-ids
+
+    # Riavvia il sensore automaticamente in caso di arresto.
     restart: unless-stopped
 
-    # --- SECURITY & ZERO TRUST ---
-    privileged: false
+    # Snort condivide il namespace di rete del firewall.
+    #
+    # Non possiede propri indirizzi IP e non riceve connessioni.
+    # Osserva invece le interfacce attraverso le quali il firewall
+    # inoltra il traffico verso Envoy.
+    network_mode: "service:firewall_perimeter"
+
+    # Capacità necessarie per catturare i pacchetti.
     cap_add:
-      - NET_ADMIN
       - NET_RAW
+      - NET_ADMIN
+
+    # Evita che AppArmor impedisca la cattura dei pacchetti.
     security_opt:
       - apparmor:unconfined
 
-    # --- NETWORKING (The "Black Box") ---
-    networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.11
-      backend_net:
-        ipv4_address: 172.20.3.11
-      monitoring_net:
-        ipv4_address: 172.20.4.11
-      corporate_net:
-        ipv4_address: 172.20.10.11
-      vpn_net:
-        ipv4_address: 172.20.11.11
-      satellite_net:
-        ipv4_address: 172.20.12.11
-      public_net:
-        ipv4_address: 172.20.13.11
-
-    # --- DATA PERSISTENCE & FILE MAPPING ---
     volumes:
+      # Configurazione principale di Snort.
       - ./configs/snort/snort-zta.lua:/etc/snort/snort-zta.lua:ro
+
+      # Regole personalizzate del progetto.
       - ./configs/snort/snort-zta.rules:/etc/snort/snort-zta.rules:ro
+
+      # Script di avvio di Snort.
       - ./services/snort/entrypoint.sh:/scripts/entrypoint.sh:ro
+
+      # Volume condiviso contenente gli alert letti da Splunk.
       - snort_logs:/var/log/snort
 
-    # --- ENVIRONMENT VARIABLES ---
     environment:
+      # Fuso orario.
       - TZ=${TZ}
-      # NETWORK TOPOLOGY VARIABLES (CIDRs)
+
+      # Snort osserva tutte le interfacce del namespace del firewall.
+      - ZTA_SNORT_INTERFACES=corp0:vpn0:sat0:public0
+
+      # Insieme delle reti appartenenti all'architettura.
       - ZTA_HOME_NET=[172.20.2.0/24,172.20.3.0/24,172.20.4.0/24,172.20.10.0/24,172.20.11.0/24,172.20.12.0/24,172.20.13.0/24]
+
+      # Singole reti utilizzate dalle regole.
       - ZTA_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
       - ZTA_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
       - ZTA_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
       - ZTA_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
       - ZTA_BACKEND_NET=${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
-      - ZTA_SNORT_INTERFACES=${ZTA_SNORT_INTERFACES}
-      # CRITICAL PORT DEFINITIONS
+
+      # Porte monitorate.
       - ZTA_PEP_PORT=${SNORT_PORT_PEP:-8443}
-      - ZTA_OPA_PORTS=${SNORT_PORT_OPA}
+      - ZTA_OPA_PORTS=${SNORT_PORT_OPA:-[8181,9191]}
       - ZTA_MONGO_PORT=${SNORT_PORT_MONGO:-27017}
       - ZTA_API_PORT=${SNORT_PORT_API:-3000}
-      - ZTA_SIEM_PORTS=${SNORT_PORT_SIEM}
+      - ZTA_SIEM_PORTS=${SNORT_PORT_SIEM:-[8000,8088]}
       - ZTA_ADMIN_PORT=${SNORT_PORT_ADMIN:-9901}
 
-    # --- ORCHESTRATION ---
     depends_on:
+      # Snort può condividere la rete del firewall solamente quando
+      # il firewall è completamente avviato e le regole sono state caricate.
+      firewall_perimeter:
+        condition: service_healthy
+
+      # Splunk deve essere disponibile per raccogliere gli alert.
       siem_central:
         condition: service_healthy
 
-    # --- HEALTH MONITORING (Healthcheck) ---
     healthcheck:
-      test: [ "CMD", "pgrep", "snort" ]
+      # Il container è sano quando il processo Snort è attivo.
+      test:
+        - CMD
+        - pgrep
+        - snort
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
-    # --- DOCKER LOG MANAGEMENT ---
     logging:
       driver: "json-file"
       options:
