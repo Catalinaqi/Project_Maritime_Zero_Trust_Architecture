@@ -1,10 +1,17 @@
-// Selezione del database del progetto
-db = db.getSiblingDB('maritime_zta');
+// Popola il database dimostrativo al primo avvio del volume MongoDB.
+const databaseName = process.env.MONGO_DATABASE || "maritime_zta";
+db = db.getSiblingDB(databaseName);
 
-// 1. Popolamento Collezione Utenti (Metadati)
+// Gli indici mantengono univoci gli identificatori applicativi.
+db.utenti.createIndex({ id_utente: 1 }, { unique: true });
+db.utenti.createIndex({ username: 1 }, { unique: true });
+db.risorse.createIndex({ id_risorsa: 1 }, { unique: true });
+db.dispositivi.createIndex({ id_dispositivo: 1 }, { unique: true });
+
 db.utenti.insertMany([
   {
     id_utente: "U-001",
+    username: "operatore_ancona",
     nome: "Marco Rossi",
     mansione: "Personale Banchina",
     porto_assegnato: "Ancona",
@@ -12,16 +19,21 @@ db.utenti.insertMany([
   },
   {
     id_utente: "U-002",
+    username: "capitano_claudia",
     nome: "Elena Bianchi",
     mansione: "Comandante",
     nave_assegnata: "AF Claudia",
     livello_sicurezza: 4
+  },
+  {
+    id_utente: "U-SOC",
+    username: "soc_admin",
+    nome: "Amministratore SOC",
+    mansione: "Security Operations",
+    livello_sicurezza: 5
   }
 ]);
 
-// 2. Popolamento Collezione Risorse
-// Le risorse sono differenziate per tipo e livello di sensibilità,
-// così OPA può applicare un controllo RBAC più preciso in base al ruolo.
 db.risorse.insertMany([
   {
     id_risorsa: "R-001",
@@ -70,7 +82,6 @@ db.risorse.insertMany([
   }
 ]);
 
-// 3. Popolamento Collezione Dispositivi (Identità Hardware)
 db.dispositivi.insertMany([
   {
     id_dispositivo: "D-001",
@@ -86,6 +97,12 @@ db.dispositivi.insertMany([
     mac_address: "A4:C3:F0:88:12:9E",
     posizione_fisica: "Ponte Comando AF Claudia",
     fingerprint_ja3: "b4c2a19f...",
+    certificato_valido: true
+  },
+  {
+    id_dispositivo: "D-SOC",
+    tipo: "Workstation SOC",
+    posizione_fisica: "Security Operation Center",
     certificato_valido: true
   }
 ]);

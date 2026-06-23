@@ -1,32 +1,40 @@
-FROM alpine:3.19
+# Immagine ufficiale Debian stabile, utilizzata per evitare le instabilità
+# riscontrate durante il download dei pacchetti dai mirror Alpine.
+FROM debian:12.14-slim
 
-# nftables : firewall
-# bash     : entrypoint
-# tini     : signal and zombie process handling
-# gettext  : provides envsubst to resolve ${VARS} from compose in rules.nft
-# iproute2 : provides 'ip' for interface diagnostics in entrypoint
-# ulogd    : daemon to extract netfilter logs to local files -> project v2
-# curl     : allows sending logs to Splunk API (HEC)
-# grep     : GNU version required for --line-buffered flag
-# util-linux: complete dmesg version to read kernel in real time
-RUN apk add --no-cache \
-    nftables \
-    bash \
-    tini \
-    gettext \
-    iproute2 \
-    curl \
-    grep \
-    util-linux \
-    ulogd \
-    && rm -rf /var/cache/apk/*
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN mkdir -p /etc/nftables /var/log/nftables
+# Configura retry e timeout di APT, installa esclusivamente i componenti
+# necessari al firewall e rimuove gli indici dei pacchetti dalla layer finale.
+RUN set -eux; \
+    printf '%s\n' \
+      'Acquire::Retries "5";' \
+      'Acquire::http::Timeout "30";' \
+      'Acquire::https::Timeout "30";' \
+      > /etc/apt/apt.conf.d/80-network-retries; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      gettext-base \
+      findutils \
+      grep \
+      iproute2 \
+      jq \
+      nftables \
+      tini \
+      ulogd2 \
+      util-linux; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/nftables /var/log/nftables /run
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD nft list table ip filter > /dev/null 2>&1 || exit 1
+# La conversione CRLF -> LF rende il file affidabile anche quando il progetto
+# viene modificato o estratto su Windows.
+RUN sed -i 's/\r$//' /entrypoint.sh \
+    && chmod 0755 /entrypoint.sh
 
-ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

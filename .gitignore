@@ -1,130 +1,41 @@
-# ====================
-
-# SECRETS & CERTIFICATES
-
-# ====================
-
-*.key
-*.crt
-*.pem
-*.p12
-*.pfx
-*.cer
-*.csr
-*.der
-
+# Segreti locali
 .env
-.env.local
-.env.*.local
-secrets/
+.env.*
+!.env.example
 *.secret
 *.token
 
-# Ignore all contents of the certs folder
-certs/*
-# But DO NOT ignore the README file in that folder
-!certs/CONFIG_CERTS.md
+# Certificati e chiavi generate
+certs/**
+!certs/**/
+!certs/**/.gitkeep
+!certs/README.md
 
-# ignore bug cleaned
-#certs/server/server.crt
-#certs/server/server.key
-
-# ====================
-
-# DOCKER / RUNTIME DATA
-
-# ====================
-
-docker-compose.override.yml
-docker-compose.local.yml
-
+# Dati runtime Docker
 volumes/
-mongo_data/
-mongo_config/
-mongo_audit_logs/
-splunk_data/
-splunk_etc/
-envoy_logs/
-snort_logs/
-nftables_logs/
-
-# ====================
-
-# LOGS
-
-# ====================
-
 logs/
 *.log
 *.pcap
 *.cap
 
-# ====================
-
-# KEEP OPA POLICY DATA
-
-# ====================
-
-!configs/opa/data/
-!configs/opa/data/*.json
-
-# ====================
-
-# PYTHON
-
-# ====================
-
-**pycache**/
-*.py[cod]
-.venv/
-venv/
-env/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# ====================
-
-# NODE
-
-# ====================
-
+# Dipendenze e cache
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
 
-# ====================
-
-# IDE / EDITOR
-
-# ====================
-
-.vscode/
+# IDE e sistema operativo
 .idea/
+.vscode/
 *.iml
 *.swp
 *.swo
-*~
-
-# ====================
-
-# OS FILES
-
-# ====================
-
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# ====================
-
-# TEMPORARY / BACKUP
-
-# ====================
-
+# Temporanei, backup e output di test
 *.tmp
 *.temp
 *.bak
@@ -132,24 +43,6 @@ Desktop.ini
 *.old
 *.orig
 *.cache
-backup/
-backups/
-
-# ====================
-
-# TEST OUTPUTS
-
-# ====================
-
 test-results/
 test-reports/
-*.test.log
-
-
-# ====================
-
-# CONTINUE + DeepSeek
-
-# ====================
-.continue_cyber/
-.continuerc.yml
+tests/**/out/

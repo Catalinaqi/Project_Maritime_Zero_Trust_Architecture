@@ -55,10 +55,8 @@ RULES_FILE="/etc/snort/snort-zta.rules"
 # Directory nella quale vengono salvati gli alert JSON.
 LOG_DIR="/var/log/snort"
 
-# Interfaccia PCAP.
-#
-# "any" permette di osservare tutte le interfacce del namespace
-# di rete condiviso con firewall_perimeter.
+# Elenco delle interfacce AFPacket nel namespace condiviso con il firewall.
+# I nomi sono stabilizzati tramite `interface_name` nel Docker Compose.
 INTERFACES="${ZTA_SNORT_INTERFACES:-corp0:vpn0:sat0:public0}"
 
 
@@ -230,22 +228,21 @@ log_info "STEP 7: validazione della configurazione Snort"
 
 VALIDATION_LOG="/tmp/snort-validation.log"
 
-# -T esegue solamente la validazione senza avviare il sensore.
-snort \
+# La validazione usa la stessa DAQ e le stesse interfacce dell'esecuzione
+# reale. L'output viene sempre conservato e, in caso di errore, mostrato
+# integralmente nei log Docker.
+if snort \
     -c "$RENDERED_LUA" \
     --daq afpacket \
+    -i "$INTERFACES" \
     -T \
-    2>&1 |
-    tee "$VALIDATION_LOG" >/dev/null
-
-# Verifica il risultato della validazione.
-if grep -q "Snort successfully validated" "$VALIDATION_LOG"; then
+    >"$VALIDATION_LOG" 2>&1; then
+    cat "$VALIDATION_LOG"
     log_info "Validazione Snort completata correttamente"
 else
-    log_error "Validazione Snort fallita"
-
+    validation_status=$?
+    log_error "Validazione Snort fallita con exit code ${validation_status}"
     cat "$VALIDATION_LOG" >&2
-
     fail "La configurazione Snort non è valida"
 fi
 
@@ -256,18 +253,18 @@ fi
 
 log_info "STEP 8: avvio di Snort in modalità IDS passiva"
 
-log_info "DAQ utilizzato: pcap"
+log_info "DAQ utilizzato: afpacket"
 log_info "Interfacce monitorate: $INTERFACES"
 log_info "Directory log: $LOG_DIR"
 log_info "File alert: $LOG_DIR/alert_json.txt"
 
 # Avvia Snort:
 #
-# --daq pcap:
-#   usa PCAP per la cattura dei pacchetti;
+# --daq afpacket:
+#   usa AFPacket in modalità passiva sulle interfacce indicate;
 #
-# -i any:
-#   osserva tutte le interfacce del namespace del firewall;
+# -i:
+#   riceve l'elenco delle interfacce del namespace del firewall;
 #
 # assenza di -Q:
 #   mantiene Snort in modalità passiva;

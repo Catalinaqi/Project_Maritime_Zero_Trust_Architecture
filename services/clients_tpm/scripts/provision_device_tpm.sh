@@ -1,134 +1,179 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+# =============================================================================
+# PROVISIONING DI UNA IDENTITÀ UTENTE-HARDWARE NEL TPM
+# =============================================================================
+#
+# Lo script:
+# 1. crea o riutilizza una chiave privata distinta per la coppia USER_ID/DEVICE_ID;
+# 2. mantiene la chiave privata dentro il TPM;
+# 3. esporta solamente la chiave pubblica;
+# 4. genera una CSR usando il provider OpenSSL TPM2.
+#
+# La chiave privata della CA non viene mai montata nel container.
+# =============================================================================
 
-echo "============================================================"
-echo " Provisioning TPM-backed device certificate"
-echo "============================================================"
+set -Eeuo pipefail
 
-DEVICE_ID="${DEVICE_ID:-D-001}"
-DEVICE_LOCATION="${DEVICE_LOCATION:-Terminal-Ancona}"
+USER_ID="${USER_ID:?USER_ID non definito}"
+DEVICE_ID="${DEVICE_ID:?DEVICE_ID non definito}"
+DEVICE_LOCATION="${DEVICE_LOCATION:-Unknown-Location}"
+TPM_HANDLE="${TPM_HANDLE:?TPM_HANDLE non definito}"
+FORCE_REPROVISION="${FORCE_REPROVISION:-0}"
 
-TPM_HANDLE="${TPM_HANDLE:-0x81000001}"
+CERT_ROOT="/certs/device"
+IDENTITY_DIR="${CERT_ROOT}/identities/${USER_ID}"
+TPM_WORK_DIR="/tpm/identities/${USER_ID}__${DEVICE_ID}"
 
-TPM_DIR="/tpm/${DEVICE_ID}"
-CERT_DIR="/certs/device"
+CSR_FILE="${IDENTITY_DIR}/identity.csr"
+PUBLIC_KEY_FILE="${IDENTITY_DIR}/identity_tpm_public.pem"
 
-CA_CERT="/ca/ca.crt"
-CA_KEY="/ca/ca.key"
+PARENT_CONTEXT="${TPM_WORK_DIR}/parent.ctx"
+KEY_PUBLIC_BLOB="${TPM_WORK_DIR}/identity.pub"
+KEY_PRIVATE_BLOB="${TPM_WORK_DIR}/identity.priv"
+KEY_CONTEXT="${TPM_WORK_DIR}/identity.ctx"
 
-mkdir -p "$TPM_DIR" "$CERT_DIR"
+log() {
+  printf '[%s] %s\n' "$1" "$2"
+}
 
-echo "[INFO] Device ID:        $DEVICE_ID"
-echo "[INFO] Device location:  $DEVICE_LOCATION"
-echo "[INFO] TPM handle:       $TPM_HANDLE"
-echo "[INFO] TPM2TOOLS_TCTI:   ${TPM2TOOLS_TCTI:-not_set}"
-echo "[INFO] TPM2OPENSSL_TCTI: ${TPM2OPENSSL_TCTI:-not_set}"
-
-if [ ! -f "$CA_CERT" ]; then
-  echo "[ERROR] CA certificate not found: $CA_CERT"
+fail() {
+  log ERROR "$1" >&2
   exit 1
-fi
+}
 
-if [ ! -f "$CA_KEY" ]; then
-  echo "[ERROR] CA private key not found: $CA_KEY"
-  echo "Per firmare la CSR TPM-backed serve montare anche certs/ca/ca.key nel container di provisioning."
-  exit 1
-fi
+validate_identifier() {
+  local label="$1"
+  local value="$2"
 
-echo "[1/8] Verifica connessione al TPM emulato..."
+  [[ "${value}" =~ ^[A-Za-z0-9._-]+$ ]] || \
+    fail "${label} contiene caratteri non consentiti: ${value}"
+}
 
+cleanup_transient_contexts() {
+  # Elimina esclusivamente oggetti e sessioni temporanei.
+  # Gli handle persistenti non vengono rimossi.
+  tpm2_flushcontext --transient-object 2>/dev/null || true
+  tpm2_flushcontext --loaded-session 2>/dev/null || true
+  tpm2_flushcontext --saved-session 2>/dev/null || true
+}
+
+persistent_handle_exists() {
+  tpm2_getcap handles-persistent 2>/dev/null |
+    grep -Fqi -- "${TPM_HANDLE}"
+}
+
+validate_identifier "USER_ID" "${USER_ID}"
+validate_identifier "DEVICE_ID" "${DEVICE_ID}"
+
+[[ "${TPM_HANDLE}" =~ ^0x81[0-9A-Fa-f]{6}$ ]] || \
+  fail "TPM_HANDLE non valido: ${TPM_HANDLE}"
+
+mkdir -p "${IDENTITY_DIR}" "${TPM_WORK_DIR}"
+
+log INFO "Utente: ${USER_ID}"
+log INFO "Dispositivo: ${DEVICE_ID}"
+log INFO "Posizione: ${DEVICE_LOCATION}"
+log INFO "Handle TPM: ${TPM_HANDLE}"
+log INFO "TCTI tools: ${TPM2TOOLS_TCTI:-not_set}"
+log INFO "TCTI OpenSSL: ${TPM2OPENSSL_TCTI:-not_set}"
+
+log STEP "Verifica della connessione al TPM"
 tpm2_getrandom 8 >/dev/null
+cleanup_transient_contexts
 
-echo "[OK] TPM raggiungibile."
+if persistent_handle_exists; then
+  if [[ "${FORCE_REPROVISION}" == "1" ]]; then
+    log WARN "Rimozione esplicita dell'handle persistente ${TPM_HANDLE}"
+    tpm2_evictcontrol -C o -c "${TPM_HANDLE}"
+    cleanup_transient_contexts
+  else
+    log INFO "Handle già presente: la chiave viene riutilizzata"
+  fi
+fi
 
-echo "[2/8] Pulizia aggressiva dello stato transitorio TPM..."
+if ! persistent_handle_exists; then
+  log STEP "Creazione del parent primario TPM"
 
-# Pulisce oggetti transitori e sessioni eventualmente rimaste aperte.
-tpm2_flushcontext -t 2>/dev/null || true
-tpm2_flushcontext -s 2>/dev/null || true
-tpm2_flushcontext -l 2>/dev/null || true
+  rm -f \
+    "${PARENT_CONTEXT}" \
+    "${KEY_PUBLIC_BLOB}" \
+    "${KEY_PRIVATE_BLOB}" \
+    "${KEY_CONTEXT}"
 
-echo "[3/8] Rimozione eventuale handle persistente precedente..."
+  # Il primary object è usato soltanto come parent temporaneo.
+  tpm2_createprimary \
+    -C o \
+    -G rsa2048 \
+    -g sha256 \
+    -c "${PARENT_CONTEXT}"
 
-# Se l'handle esiste già, lo libera.
-tpm2_evictcontrol -C o -c "$TPM_HANDLE" 2>/dev/null || true
+  log STEP "Creazione della chiave di firma non esportabile"
 
-tpm2_flushcontext -t 2>/dev/null || true
-tpm2_flushcontext -s 2>/dev/null || true
-tpm2_flushcontext -l 2>/dev/null || true
+  # fixedtpm e fixedparent impediscono la migrazione della chiave.
+  # sensitivedataorigin impone che il materiale privato venga generato dal TPM.
+  tpm2_create \
+    -C "${PARENT_CONTEXT}" \
+    -G rsa2048 \
+    -g sha256 \
+    -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|sign" \
+    -u "${KEY_PUBLIC_BLOB}" \
+    -r "${KEY_PRIVATE_BLOB}"
 
-rm -f \
-  "$TPM_DIR/device_primary.ctx" \
-  "$CERT_DIR/device.crt" \
-  "$CERT_DIR/device.csr" \
-  "$CERT_DIR/device_tpm_public.pem"
+  log STEP "Caricamento e persistenza della chiave su ${TPM_HANDLE}"
 
-echo "[4/8] Creazione chiave primaria TPM usata come identità device..."
+  tpm2_load \
+    -C "${PARENT_CONTEXT}" \
+    -u "${KEY_PUBLIC_BLOB}" \
+    -r "${KEY_PRIVATE_BLOB}" \
+    -c "${KEY_CONTEXT}"
 
-# In questa versione usiamo direttamente una primary key persistente come chiave device.
-# Questo evita il passaggio tpm2_load, che nel tuo SWTPM sta fallendo per saturazione
-# degli object contexts.
-tpm2_createprimary \
-  -C o \
-  -G rsa \
-  -g sha256 \
-  -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|sign" \
-  -c "$TPM_DIR/device_primary.ctx"
+  tpm2_evictcontrol \
+    -C o \
+    -c "${KEY_CONTEXT}" \
+    "${TPM_HANDLE}"
 
-echo "[5/8] Persistenza della chiave device su handle $TPM_HANDLE..."
+  cleanup_transient_contexts
 
-tpm2_evictcontrol \
-  -C o \
-  -c "$TPM_DIR/device_primary.ctx" \
-  "$TPM_HANDLE"
+  # I blob TPM non sono chiavi private esportabili, ma vengono comunque
+  # rimossi dopo la persistenza per ridurre i file temporanei.
+  rm -f \
+    "${PARENT_CONTEXT}" \
+    "${KEY_PUBLIC_BLOB}" \
+    "${KEY_PRIVATE_BLOB}" \
+    "${KEY_CONTEXT}"
+fi
 
-# Dopo la persistenza, libero i contesti transitori.
-tpm2_flushcontext -t 2>/dev/null || true
-tpm2_flushcontext -s 2>/dev/null || true
-tpm2_flushcontext -l 2>/dev/null || true
+persistent_handle_exists || \
+  fail "L'handle ${TPM_HANDLE} non risulta persistente dopo il provisioning"
 
-echo "[6/8] Esportazione della sola chiave pubblica per audit/debug..."
+log STEP "Esportazione della sola chiave pubblica"
 
 tpm2_readpublic \
-  -c "$TPM_HANDLE" \
+  -c "${TPM_HANDLE}" \
   -f pem \
-  -o "$CERT_DIR/device_tpm_public.pem"
+  -o "${PUBLIC_KEY_FILE}"
 
-echo "[7/8] Generazione CSR con chiave TPM-backed..."
+log STEP "Generazione della CSR TPM-backed"
+
+rm -f "${CSR_FILE}"
 
 openssl req -new \
   -provider tpm2 \
   -provider default \
   -key "handle:${TPM_HANDLE}" \
-  -out "$CERT_DIR/device.csr" \
-  -subj "/O=Maritime_Zero_Trust/OU=Device/CN=${DEVICE_ID}/L=${DEVICE_LOCATION}"
+  -out "${CSR_FILE}" \
+  -subj "/O=Maritime_Zero_Trust/OU=${USER_ID}/CN=${DEVICE_ID}/L=${DEVICE_LOCATION}"
 
-echo "[8/8] Firma della CSR con la CA del progetto..."
+openssl req \
+  -in "${CSR_FILE}" \
+  -noout \
+  -verify >/dev/null
 
-openssl x509 -req \
-  -days 365 \
-  -sha256 \
-  -in "$CERT_DIR/device.csr" \
-  -CA "$CA_CERT" \
-  -CAkey "$CA_KEY" \
-  -CAcreateserial \
-  -out "$CERT_DIR/device.crt"
+cleanup_transient_contexts
 
-rm -f "$CERT_DIR/device.csr"
+chmod 0644 "${CSR_FILE}" "${PUBLIC_KEY_FILE}" 2>/dev/null || true
 
-echo ""
-echo "============================================================"
-echo " Certificato TPM-backed generato correttamente"
-echo "============================================================"
-echo "Certificato device:"
-echo "  $CERT_DIR/device.crt"
-echo ""
-echo "Chiave privata:"
-echo "  NON esportata come device.key"
-echo "  conservata nel TPM emulato SWTPM"
-echo "  handle: $TPM_HANDLE"
-echo ""
-echo "Chiave pubblica esportata:"
-echo "  $CERT_DIR/device_tpm_public.pem"
-echo "============================================================"
+log OK "CSR generata: ${CSR_FILE}"
+log OK "Chiave pubblica esportata: ${PUBLIC_KEY_FILE}"
+log INFO "La chiave privata resta nel TPM all'handle ${TPM_HANDLE}"

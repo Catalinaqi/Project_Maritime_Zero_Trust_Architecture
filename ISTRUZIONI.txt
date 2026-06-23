@@ -1,0 +1,32 @@
+PATCH 04 - IDENTITÀ UTENTE-HARDWARE TPM-BACKED
+================================================
+
+Questa patch introduce una chiave e un certificato distinti per ogni coppia
+utente/dispositivo autorizzata in access_rules.json.
+
+File inclusi:
+- configs/identity/identity_bindings.conf
+- scripts/generate_device_certs.sh
+- services/clients_tpm/scripts/provision_device_tpm.sh
+
+Output:
+certs/devices/<DEVICE_ID>/identities/<USER_ID>/
+  identity.crt
+  identity_tpm_public.pem
+  ca.crt
+
+Manifest:
+certs/devices/identity-certificates.tsv
+
+Sicurezza:
+- le chiavi private sono generate dal TPM;
+- fixedtpm + fixedparent impediscono la migrazione;
+- la CA privata resta sull'host;
+- gli handle legacy non vengono cancellati;
+- FORCE_REPROVISION=0 per impostazione predefinita.
+
+Non usare:
+docker compose down -v
+
+Esecuzione:
+bash scripts/generate_device_certs.sh

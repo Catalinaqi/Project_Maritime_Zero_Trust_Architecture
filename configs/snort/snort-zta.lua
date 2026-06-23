@@ -21,12 +21,8 @@
 -- 1. DATA ACQUISITION - DAQ
 -- =============================================================================
 --
--- Il modulo PCAP permette a Snort di osservare passivamente il traffico
--- presente nelle interfacce di rete del firewall.
---
--- Poiché il container Snort condivide il namespace di rete del firewall,
--- l'interfaccia "any", indicata nell'entrypoint, comprende tutte le
--- interfacce collegate a firewall_perimeter.
+-- Il modulo AFPacket permette a Snort di osservare passivamente il traffico
+-- sulle interfacce client del namespace condiviso con il firewall.
 --
 -- Non viene utilizzata la modalità inline e non viene utilizzato -Q.
 -- =============================================================================

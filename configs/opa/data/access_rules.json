@@ -1,97 +1,100 @@
 {
-  "access_rules": {
-    "rules": [
-      {
-        "user": "operatore_ancona",
-        "device": "D-001",
-        "networks": [
-          "vpn_net"
-        ]
-      },
-      {
-        "user": "operatore_ancona",
-        "device": "D-002",
-        "networks": [
-          "satellite_net"
-        ]
-      },
-      {
-        "user": "capitano_claudia",
-        "device": "D-001",
-        "networks": [
-          "vpn_net"
-        ]
-      },
-      {
-        "user": "capitano_claudia",
-        "device": "D-002",
-        "networks": [
-          "satellite_net"
-        ]
-      },
-      {
-        "user": "soc_admin",
-        "device": "D-SOC",
-        "networks": [
-          "corporate_net"
-        ]
-      },
-      {
-        "user": "soc_admin",
-        "device": "D-001",
-        "networks": [
-          "vpn_net"
-        ]
-      },
-      {
-        "user": "soc_admin",
-        "device": "D-002",
-        "networks": [
-          "satellite_net"
-        ]
-      }
-    ],
-    "resource_rules": {
-      "R-001": {
-        "description": "Manifesto carico AF Claudia",
-        "allowed_roles": [
-          "ruolo_banchina",
-          "ruolo_equipaggio",
-          "ruolo_gestione_flotta"
-        ],
-        "allowed_commands": [
-          "find"
-        ]
-      },
-      "R-002": {
-        "description": "Telemetria motori AF Marina",
-        "allowed_roles": [
-          "ruolo_equipaggio",
-          "ruolo_gestione_flotta"
-        ],
-        "allowed_commands": [
-          "find"
-        ]
-      },
-      "R-003": {
-        "description": "Report sicurezza SOC",
-        "allowed_roles": [
-          "ruolo_gestione_flotta"
-        ],
-        "allowed_commands": [
-          "find"
-        ]
-      },
-      "R-004": {
-        "description": "Registro dispositivi portuali",
-        "allowed_roles": [
-          "ruolo_banchina",
-          "ruolo_gestione_flotta"
-        ],
-        "allowed_commands": [
-          "find"
-        ]
-      }
+  "rules": [
+    {
+      "user": "operatore_ancona",
+      "device": "D-001",
+      "networks": [
+        "vpn_net"
+      ]
+    },
+    {
+      "user": "operatore_ancona",
+      "device": "D-002",
+      "networks": [
+        "satellite_net"
+      ]
+    },
+    {
+      "user": "capitano_claudia",
+      "device": "D-001",
+      "networks": [
+        "vpn_net"
+      ]
+    },
+    {
+      "user": "capitano_claudia",
+      "device": "D-002",
+      "networks": [
+        "satellite_net"
+      ]
+    },
+    {
+      "user": "soc_admin",
+      "device": "D-SOC",
+      "networks": [
+        "corporate_net"
+      ]
+    },
+    {
+      "user": "soc_admin",
+      "device": "D-001",
+      "networks": [
+        "vpn_net"
+      ]
+    },
+    {
+      "user": "soc_admin",
+      "device": "D-002",
+      "networks": [
+        "satellite_net"
+      ]
+    }
+  ],
+  "resource_rules": {
+    "R-001": {
+      "description": "Manifesto carico AF Claudia",
+      "allowed_roles": [
+        "ruolo_banchina",
+        "ruolo_equipaggio",
+        "ruolo_gestione_flotta"
+      ],
+      "allowed_commands": [
+        "find",
+        "update"
+      ]
+    },
+    "R-002": {
+      "description": "Telemetria motori AF Marina",
+      "allowed_roles": [
+        "ruolo_equipaggio",
+        "ruolo_gestione_flotta"
+      ],
+      "allowed_commands": [
+        "find",
+        "update"
+      ]
+    },
+    "R-003": {
+      "description": "Report sicurezza SOC",
+      "allowed_roles": [
+        "ruolo_gestione_flotta"
+      ],
+      "allowed_commands": [
+        "find",
+        "update",
+        "delete"
+      ]
+    },
+    "R-004": {
+      "description": "Registro dispositivi portuali",
+      "allowed_roles": [
+        "ruolo_banchina",
+        "ruolo_gestione_flotta"
+      ],
+      "allowed_commands": [
+        "find",
+        "update"
+      ]
     }
   }
 }

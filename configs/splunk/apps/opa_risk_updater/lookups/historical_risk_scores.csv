@@ -1,1 +1,1 @@
-user_id,risk_score,isAnomaly,denied_count,unique_ips,updated_at
+"user_id","risk_score",isAnomaly,"denied_count","unique_sources","updated_at"

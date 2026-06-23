@@ -1,109 +1,134 @@
 admin:
   address:
     socket_address:
-      address: 0.0.0.0
+      address: 127.0.0.1
       port_value: 9901
 
 static_resources:
   listeners:
-  - name: listener_https_zt
-    address:
-      socket_address:
-        address: 0.0.0.0
-        port_value: 8443
-
-    filter_chains:
-    - transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-          require_client_certificate: true
-          common_tls_context:
-            tls_certificates:
-            - certificate_chain:
-                filename: "/certs/server.crt"
-              private_key:
-                filename: "/certs/server.key"
-            validation_context:
-              trusted_ca:
-                filename: "/ca/ca.crt"
-
-      filters:
-      - name: envoy.filters.network.http_connection_manager
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          stat_prefix: ingress_http
-
-          route_config:
-            name: local_route
-            virtual_hosts:
-            - name: local_service
-              domains: ["*"]
-              routes:
-              - match:
-                  prefix: "/"
-                route:
-                  cluster: cluster_backend_api
-
-          http_filters:
-          # 1. Filtro Lua per estrarre i metadati HTTP usati da OPA.
-          # Il codice Lua è mantenuto in un file esterno per evitare duplicazioni
-          # e mantenere envoy.yaml più pulito.
-          - name: envoy.filters.http.lua
+    - name: listener_https_zero_trust
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 8443
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
             typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-              default_source_code:
-                filename: "/etc/envoy/mongo_inspector.lua/mongo.inspector.lua"
-
-          # 2. Filtro di autorizzazione esterna verso OPA.
-          # Envoy invia a OPA il certificato peer e i metadati prodotti dal filtro Lua.
-          - name: envoy.filters.http.ext_authz
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
-              transport_api_version: V3
-              grpc_service:
-                envoy_grpc:
-                  cluster_name: "cluster_opa"
-                timeout: 0.5s
-              include_peer_certificate: true
-              metadata_context_namespaces:
-              - "envoy.filters.http.lua"
-
-          # 3. Router finale verso il backend API.
-          # La richiesta arriva qui solo dopo il controllo autorizzativo di OPA.
-          - name: envoy.filters.http.router
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_2
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /certs/server.crt
+                    private_key:
+                      filename: /certs/server.key
+                validation_context:
+                  trusted_ca:
+                    filename: /ca/ca.crt
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                use_remote_address: true
+                forward_client_cert_details: SANITIZE_SET
+                set_current_client_cert_details:
+                  subject: true
+                  uri: true
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                      log_format:
+                        json_format:
+                          timestamp: "%START_TIME%"
+                          method: "%REQ(:METHOD)%"
+                          path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                          response_code: "%RESPONSE_CODE%"
+                          source: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+                          user_id: "%REQ(X-ZTA-USER-ID)%"
+                          device_id: "%REQ(X-ZTA-DEVICE-ID)%"
+                          duration_ms: "%DURATION%"
+                  - name: envoy.access_loggers.file
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                      path: /var/log/envoy/access.log
+                      log_format:
+                        json_format:
+                          timestamp: "%START_TIME%"
+                          method: "%REQ(:METHOD)%"
+                          path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                          response_code: "%RESPONSE_CODE%"
+                          source: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+                          user_id: "%REQ(X-ZTA-USER-ID)%"
+                          device_id: "%REQ(X-ZTA-DEVICE-ID)%"
+                          duration_ms: "%DURATION%"
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: maritime_api
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/"
+                          route:
+                            cluster: cluster_backend_api
+                http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      default_source_code:
+                        filename: /etc/envoy/mongo_inspector.lua
+                  - name: envoy.filters.http.ext_authz
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                      transport_api_version: V3
+                      failure_mode_allow: false
+                      status_on_error:
+                        code: ServiceUnavailable
+                      grpc_service:
+                        envoy_grpc:
+                          cluster_name: cluster_opa
+                        timeout: 2s
+                      metadata_context_namespaces:
+                        - envoy.filters.http.lua
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
-  - name: cluster_backend_api
-    type: STRICT_DNS
-    lb_policy: ROUND_ROBIN
-    load_assignment:
-      cluster_name: cluster_backend_api
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: api_backend
-                port_value: 3000
+    - name: cluster_backend_api
+      type: STRICT_DNS
+      connect_timeout: 2s
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: cluster_backend_api
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: api_backend
+                      port_value: 3000
 
-  - name: cluster_opa
-    type: STRICT_DNS
-    lb_policy: ROUND_ROBIN
-    typed_extension_protocol_options:
-      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-        explicit_http_config:
-          http2_protocol_options: {}
-
-    load_assignment:
-      cluster_name: cluster_opa
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: pdp_engine
-                port_value: 9191
+    - name: cluster_opa
+      type: STRICT_DNS
+      connect_timeout: 2s
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: cluster_opa
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: pdp_engine
+                      port_value: 9191

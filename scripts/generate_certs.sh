@@ -1,224 +1,180 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-set -e
-export MSYS_NO_PATHCONV=1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
 
-echo "Inizio generazione certificati mTLS base..."
+CERT_ROOT="certs"
+CA_DIR="${CERT_ROOT}/ca"
+SERVER_DIR="${CERT_ROOT}/server"
+MONGO_DIR="${CERT_ROOT}/mongodb"
+TMP_DIR="${CERT_ROOT}/.openssl-tmp"
 
-# Creo tutte le cartelle necessarie per CA, Envoy, MongoDB, client e dispositivi.
-mkdir -p certs/ca certs/server certs/mongodb
-
-mkdir -p certs/clients/operatore_ancona \
-         certs/clients/capitano_claudia \
-         certs/clients/soc_admin \
-         certs/clients/intruso
-
-mkdir -p certs/devices/D-001 \
-         certs/devices/D-002 \
-         certs/devices/D-SOC
-
-
-# ------------------------------------------------------------
-# 1. CA ROOT
-# ------------------------------------------------------------
-# Genera la Certification Authority principale del progetto.
-# Questa CA firmerà:
-# - certificato server Envoy
-# - certificato server MongoDB
-# - certificati utente legacy
-# - CSR dei dispositivi generate tramite SWTPM
-#
-# ATTENZIONE:
-# Se rigeneri la CA, devi rigenerare anche i certificati TPM-backed
-# dei dispositivi con /scripts/provision_device_tpm.sh,
-# perché i vecchi device.crt sarebbero firmati dalla vecchia CA.
-echo "Generazione CA root..."
-
-openssl req -x509 -sha256 -nodes -days 3650 -newkey rsa:4096 \
-  -keyout certs/ca/ca.key \
-  -out certs/ca/ca.crt \
-  -subj "/O=Maritime_Zero_Trust/CN=Maritime_Root_CA"
-
-
-# ------------------------------------------------------------
-# 2. CERTIFICATO SERVER ENVOY
-# ------------------------------------------------------------
-# Certificato usato dal PEP Envoy per esporre l'endpoint HTTPS/mTLS.
-# Il CN e il SAN devono contenere pep_gateway, cioè il nome del servizio Docker.
-echo "Generazione certificato server Envoy..."
-
-openssl req -newkey rsa:2048 -nodes \
-  -keyout certs/server/server.key \
-  -out certs/server/server.csr \
-  -subj "/O=Maritime_Zero_Trust/CN=pep_gateway"
-
-cat > certs/server/server.ext << EOF
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = DNS:pep_gateway,DNS:localhost
-EOF
-
-openssl x509 -req -days 365 -sha256 \
-  -in certs/server/server.csr \
-  -CA certs/ca/ca.crt \
-  -CAkey certs/ca/ca.key \
-  -CAcreateserial \
-  -out certs/server/server.crt \
-  -extfile certs/server/server.ext
-
-rm -f certs/server/server.csr certs/server/server.ext
-
-# Copio la CA anche nella cartella server, utile per debug e configurazioni.
-cp certs/ca/ca.crt certs/server/ca.crt
-
-
-# ------------------------------------------------------------
-# 3. CERTIFICATO SERVER MONGODB
-# ------------------------------------------------------------
-# Certificato usato da MongoDB per accettare connessioni TLS.
-# Deve avere nomi coerenti con quelli usati nel docker-compose:
-# - db_primary: nome del container
-# - mongo-primary: hostname impostato nel servizio
-# - 172.20.3.5: IP statico nella backend_net
-echo "Generazione certificato server MongoDB..."
-
-openssl req -newkey rsa:2048 -nodes \
-  -keyout certs/mongodb/mongodb.key \
-  -out certs/mongodb/mongodb.csr \
-  -subj "/O=Maritime_Zero_Trust/CN=db_primary"
-
-cat > certs/mongodb/mongodb.ext << EOF
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = DNS:db_primary,DNS:mongo-primary,IP:172.20.3.5
-EOF
-
-openssl x509 -req -days 365 -sha256 \
-  -in certs/mongodb/mongodb.csr \
-  -CA certs/ca/ca.crt \
-  -CAkey certs/ca/ca.key \
-  -CAcreateserial \
-  -out certs/mongodb/mongodb.crt \
-  -extfile certs/mongodb/mongodb.ext
-
-# MongoDB richiede un file PEM contenente certificato e chiave privata insieme.
-cat certs/mongodb/mongodb.crt certs/mongodb/mongodb.key > certs/mongodb/mongodb.pem
-
-# Copio la CA nella cartella MongoDB, così il container può usarla facilmente.
-cp certs/ca/ca.crt certs/mongodb/ca.crt
-
-rm -f certs/mongodb/mongodb.csr certs/mongodb/mongodb.ext
-
-
-# ------------------------------------------------------------
-# 4. FUNZIONE GENERAZIONE CERTIFICATI CLIENT UTENTE LEGACY
-# ------------------------------------------------------------
-# Questi certificati rappresentano l'identità utente nella modalità legacy.
-# Nel flusso attuale Zero Trust:
-# - il certificato mTLS identifica il dispositivo;
-# - l'utente applicativo viene passato tramite X-User-Id;
-# - la chiave privata del dispositivo è custodita nel TPM/SWTPM.
-#
-# Manteniamo questi certificati solo per compatibilità/debug.
-generate_client() {
-    local FOLDER=$1
-    local CN=$2
-    local OU=$3
-
-    echo "Generazione certificato client legacy: CN=$CN, OU=$OU, cartella=$FOLDER"
-
-    openssl req -newkey rsa:2048 -nodes \
-      -keyout certs/clients/$FOLDER/client.key \
-      -out    certs/clients/$FOLDER/client.csr \
-      -subj "/O=Maritime_Zero_Trust/OU=$OU/CN=$CN"
-
-    openssl x509 -req -days 365 -sha256 \
-      -in certs/clients/$FOLDER/client.csr \
-      -CA certs/ca/ca.crt \
-      -CAkey certs/ca/ca.key \
-      -CAcreateserial \
-      -out certs/clients/$FOLDER/client.crt
-
-    rm -f certs/clients/$FOLDER/client.csr
-
-    # Copia la CA in ogni cartella client, utile per curl, debug e test.
-    cp certs/ca/ca.crt certs/clients/$FOLDER/ca.crt
+fail() {
+  printf '[ERRORE] %s\n' "$1" >&2
+  exit 1
 }
 
+cleanup() {
+  rm -rf "${TMP_DIR}"
+}
+trap cleanup EXIT
 
-# ------------------------------------------------------------
-# 5. GENERAZIONE CERTIFICATI CLIENT UTENTE LEGACY
-# ------------------------------------------------------------
-generate_client "operatore_ancona" "Marco Rossi"    "D-001"
-generate_client "capitano_claudia" "Elena Bianchi"  "D-002"
-generate_client "soc_admin"        "Admin SOC"      "D-SOC"
-generate_client "intruso"          "hacker_esterno" "Sconosciuto"
+command -v openssl >/dev/null 2>&1 || fail "OpenSSL non è disponibile."
+printf '[INFO] OpenSSL rilevato: %s\n' "$(openssl version)"
 
+mkdir -p "${CA_DIR}"
+mkdir -p "${SERVER_DIR}"
+mkdir -p "${MONGO_DIR}"
+mkdir -p "${CERT_ROOT}/devices/D-001"
+mkdir -p "${CERT_ROOT}/devices/D-002"
+mkdir -p "${CERT_ROOT}/devices/D-SOC"
+mkdir -p "${TMP_DIR}"
 
-# ------------------------------------------------------------
-# 6. PREPARAZIONE CARTELLE DEVICE TPM-BACKED
-# ------------------------------------------------------------
-# Da questo punto in poi NON generiamo più device.key con OpenSSL.
-# I certificati dei dispositivi vengono generati tramite SWTPM:
-#
-#   docker compose --profile testing run --rm client_d001_tpm  /scripts/provision_device_tpm.sh
-#   docker compose --profile testing run --rm client_d002_tpm  /scripts/provision_device_tpm.sh
-#   docker compose --profile testing run --rm client_dsoc_tpm  /scripts/provision_device_tpm.sh
-#
-# Ogni provisioning:
-# - crea una chiave privata dentro il TPM emulato;
-# - esporta solo la chiave pubblica;
-# - genera una CSR usando l'handle TPM;
-# - firma la CSR con la CA del progetto;
-# - produce device.crt senza esportare device.key.
-prepare_device_folder() {
-    local FOLDER=$1
+find "${CA_DIR}" "${SERVER_DIR}" "${MONGO_DIR}" -type f ! -name '.gitkeep' -delete
+umask 077
 
-    echo "Preparazione cartella device TPM-backed: $FOLDER"
+cat > "${TMP_DIR}/ca.cnf" <<'EOF'
+[req]
+prompt = no
+distinguished_name = dn
+x509_extensions = v3_ca
 
-    mkdir -p certs/devices/$FOLDER
+[dn]
+O = Maritime_Zero_Trust
+CN = Maritime_Root_CA
 
-    # Copio la CA nella cartella del dispositivo.
-    cp certs/ca/ca.crt certs/devices/$FOLDER/ca.crt
+[v3_ca]
+basicConstraints = critical,CA:TRUE,pathlen:1
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+EOF
 
-    # Rimuovo eventuali certificati/chiavi device legacy.
-    # La chiave privata device.key non deve più essere usata nel flusso TPM.
-    rm -f certs/devices/$FOLDER/device.key
-    rm -f certs/devices/$FOLDER/device.csr
-    rm -f certs/devices/$FOLDER/device_tpm_public.pem
+cat > "${TMP_DIR}/envoy.cnf" <<'EOF'
+[req]
+prompt = no
+distinguished_name = dn
+req_extensions = v3_req
 
-    # Rimuovo anche il vecchio device.crt, perché dovrà essere rigenerato
-    # dal provisioning TPM-backed.
-    rm -f certs/devices/$FOLDER/device.crt
+[dn]
+O = Maritime_Zero_Trust
+OU = Policy_Enforcement_Point
+CN = pep_gateway
+
+[v3_req]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = pep_gateway
+DNS.2 = envoy-gateway
+DNS.3 = localhost
+IP.1 = 127.0.0.1
+IP.2 = 172.20.2.7
+IP.3 = 172.20.3.7
+EOF
+
+cat > "${TMP_DIR}/mongodb-server.cnf" <<'EOF'
+[req]
+prompt = no
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+O = Maritime_Zero_Trust
+OU = Database
+CN = db_primary
+
+[v3_req]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = db_primary
+DNS.2 = mongo-primary
+DNS.3 = localhost
+IP.1 = 127.0.0.1
+IP.2 = 172.20.3.5
+EOF
+
+cat > "${TMP_DIR}/api-client.cnf" <<'EOF'
+[req]
+prompt = no
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+O = Maritime_Zero_Trust
+OU = Backend
+CN = api_backend
+
+[v3_req]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = clientAuth
+subjectAltName = DNS:api_backend
+EOF
+
+cat > "${TMP_DIR}/healthcheck-client.cnf" <<'EOF'
+[req]
+prompt = no
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+O = Maritime_Zero_Trust
+OU = Database
+CN = mongodb-healthcheck
+
+[v3_req]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = clientAuth
+subjectAltName = DNS:mongodb-healthcheck
+EOF
+
+printf '[INFO] Generazione della CA radice...\n'
+openssl req -new -x509 -newkey rsa:4096 -sha256 -nodes -days 3650 -config "${TMP_DIR}/ca.cnf" -keyout "${CA_DIR}/ca.key" -out "${CA_DIR}/ca.crt"
+
+issue_certificate() {
+  local label="$1"
+  local config="$2"
+  local key="$3"
+  local csr="$4"
+  local crt="$5"
+
+  printf '[INFO] Generazione del certificato %s...\n' "${label}"
+  openssl req -new -newkey rsa:3072 -sha256 -nodes -config "${config}" -keyout "${key}" -out "${csr}"
+  openssl x509 -req -sha256 -days 825 -in "${csr}" -CA "${CA_DIR}/ca.crt" -CAkey "${CA_DIR}/ca.key" -CAserial "${TMP_DIR}/ca.srl" -CAcreateserial -extfile "${config}" -extensions v3_req -out "${crt}"
+  rm -f "${csr}"
 }
 
+issue_certificate "Envoy" "${TMP_DIR}/envoy.cnf" "${SERVER_DIR}/server.key" "${SERVER_DIR}/server.csr" "${SERVER_DIR}/server.crt"
+issue_certificate "MongoDB server" "${TMP_DIR}/mongodb-server.cnf" "${MONGO_DIR}/mongodb-server.key" "${MONGO_DIR}/mongodb-server.csr" "${MONGO_DIR}/mongodb-server.crt"
+issue_certificate "API client" "${TMP_DIR}/api-client.cnf" "${MONGO_DIR}/api-client.key" "${MONGO_DIR}/api-client.csr" "${MONGO_DIR}/api-client.crt"
+issue_certificate "MongoDB healthcheck client" "${TMP_DIR}/healthcheck-client.cnf" "${MONGO_DIR}/healthcheck-client.key" "${MONGO_DIR}/healthcheck-client.csr" "${MONGO_DIR}/healthcheck-client.crt"
 
-# ------------------------------------------------------------
-# 7. PREPARAZIONE DEVICE
-# ------------------------------------------------------------
-prepare_device_folder "D-001"
-prepare_device_folder "D-002"
-prepare_device_folder "D-SOC"
+cat "${MONGO_DIR}/mongodb-server.crt" "${MONGO_DIR}/mongodb-server.key" > "${MONGO_DIR}/mongodb-server.pem"
+cat "${MONGO_DIR}/api-client.crt" "${MONGO_DIR}/api-client.key" > "${MONGO_DIR}/api-client.pem"
+cat "${MONGO_DIR}/healthcheck-client.crt" "${MONGO_DIR}/healthcheck-client.key" > "${MONGO_DIR}/healthcheck-client.pem"
 
+chmod 600 "${CA_DIR}/ca.key" "${SERVER_DIR}/server.key" "${MONGO_DIR}/mongodb-server.key" "${MONGO_DIR}/api-client.key" "${MONGO_DIR}/healthcheck-client.key" "${MONGO_DIR}/mongodb-server.pem" "${MONGO_DIR}/api-client.pem" "${MONGO_DIR}/healthcheck-client.pem" 2>/dev/null || true
+chmod 644 "${CA_DIR}/ca.crt" "${SERVER_DIR}/server.crt" "${MONGO_DIR}/mongodb-server.crt" "${MONGO_DIR}/api-client.crt" "${MONGO_DIR}/healthcheck-client.crt" 2>/dev/null || true
 
-# ------------------------------------------------------------
-# 8. PULIZIA FINALE
-# ------------------------------------------------------------
-rm -f certs/ca/ca.srl
+printf '[INFO] Verifica della catena di certificazione...\n'
+openssl verify -CAfile "${CA_DIR}/ca.crt" "${SERVER_DIR}/server.crt"
+openssl verify -CAfile "${CA_DIR}/ca.crt" "${MONGO_DIR}/mongodb-server.crt"
+openssl verify -CAfile "${CA_DIR}/ca.crt" "${MONGO_DIR}/api-client.crt"
+openssl verify -CAfile "${CA_DIR}/ca.crt" "${MONGO_DIR}/healthcheck-client.crt"
 
-echo ""
-echo "Certificati base generati correttamente."
-echo "Certificato MongoDB creato in: certs/mongodb/mongodb.pem"
-echo ""
-echo "ATTENZIONE:"
-echo "I certificati device non sono stati generati con OpenSSL."
-echo "Ora devi generare i certificati TPM-backed con:"
-echo ""
-echo "  docker compose --profile testing run --rm client_d001_tpm /scripts/provision_device_tpm.sh"
-echo "  docker compose --profile testing run --rm client_d002_tpm /scripts/provision_device_tpm.sh"
-echo "  docker compose --profile testing run --rm client_dsoc_tpm /scripts/provision_device_tpm.sh"
-echo ""
-echo "Nel nuovo flusso la chiave privata del device non viene esportata come device.key,"
-echo "ma resta nel TPM emulato SWTPM."
+openssl x509 -in "${SERVER_DIR}/server.crt" -noout -checkhost pep_gateway >/dev/null || fail "SAN pep_gateway assente nel certificato Envoy."
+openssl x509 -in "${MONGO_DIR}/mongodb-server.crt" -noout -checkhost db_primary >/dev/null || fail "SAN db_primary assente nel certificato MongoDB."
+
+printf '\n[OK] Certificati infrastrutturali generati correttamente.\n'
+printf '[INFO] Passaggio successivo: bash scripts/provision_tpm_devices.sh\n'

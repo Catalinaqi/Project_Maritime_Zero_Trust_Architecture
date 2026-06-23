@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Installo SWTPM, cioè l'emulatore software di TPM.
+# Installa SWTPM, l'emulatore software usato per i dispositivi dimostrativi.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       swtpm \

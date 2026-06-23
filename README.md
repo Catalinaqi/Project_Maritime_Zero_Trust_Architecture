@@ -1,430 +1,352 @@
-# Maritime Zero Trust Architecture (ZTA)
+# Maritime Zero Trust Architecture
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-4.38.0-blue.svg)](https://www.docker.com/)
-[![Python](https://img.shields.io/badge/Python-3.11+-green.svg)](https://www.python.org/)
+Progetto universitario — Università Politecnica delle Marche, 2026.  
+Corso: Ingegneria dell'Informazione — Tema: Zero Trust Architecture.
 
-**Enterprise-grade Zero Trust Architecture** for maritime operations with mutual TLS, policy-driven access control, real-time monitoring, and intrusion detection.
-
----
-
-## 📋 **Table of Contents**
-
-- [Overview](#-overview)
-- [Architecture](#-architecture)
-- [Technologies & Tools](#-technologies--tools)
-- [The 12 Services](#-the-12-services)
-- [Quick Start](#-quick-start)
-- [Project Structure](#-project-structure)
-- [Security Features](#-security-features)
-- [Documentation](#-documentation)
+Il progetto simula una Zero Trust Architecture per un ambiente marittimo portuale.
+Ogni richiesta viene autorizzata valutando congiuntamente identità utente, dispositivo,
+rete sorgente, risorsa richiesta, operazione, finestra temporale e rischio dinamico.
 
 ---
 
-## 🎯 **Overview**
+## Architettura
 
-This project implements a production-ready **Zero Trust security model** based on **NIST SP 800-207** with:
+```text
+Client con SWTPM (certificato hardware-bound)
+      │
+      │  mTLS (CN=utente, SAN URI spiffe://.../users/<u>/devices/<d>)
+      ▼
+NFTables firewall ──── Snort 3 IDS (modalità passiva)
+      │
+      │  DNAT verso Envoy, IP sorgente preservato
+      ▼
+Envoy PEP ──── gRPC ext_authz ──── OPA PDP ──── decision log ──── Splunk
+      │
+      │  HTTP interno (x-zta-* headers)
+      ▼
+API backend (Node.js / Express)
+      │
+      │  mTLS + account applicativo a privilegi minimi
+      ▼
+MongoDB (TLS obbligatorio)
+```
 
-- **12 containerized microservices** (7 core + 5 testing clients)
-- **mTLS everywhere**: All communication encrypted and mutually authenticated
-- **Policy-driven access**: Dynamic authorization via Open Policy Agent (OPA)
-- **Real-time SIEM**: Centralized logging and threat correlation with Splunk
-- **Network IDS**: Snort with 15+ custom detection rules
-- **Defense in depth**: Multi-layer security (firewall → proxy → policy → data)
+Il comportamento predefinito della policy è **deny**.  
+La rete `backend_net` e `monitoring_net` sono reti Docker interne non accessibili
+direttamente dall'esterno.
 
 ---
 
-## 🏗️ **Architecture**
+## Componenti
 
-### **System Architecture Diagram**
-
-```
-  update diagram
-
-LEGEND:
-  PEP = Policy Enforcement Point (Envoy)
-  PDP = Policy Decision Point (OPA)
-  SIEM = Security Information & Event Management (Splunk)
-  NIDS = Network Intrusion Detection System (Snort)
-  mTLS = Mutual TLS (both sides authenticate with certificates)
-  RBAC = Role-Based Access Control
-  ABAC = Attribute-Based Access Control
-```
-
-### **Traffic Flow**
-
-```
-Client Request
-    │
-    ├─1─► NFTables Firewall (L3/L4 filtering)
-    │         │
-    │         ├─► Snort IDS (monitors, alerts to Splunk)
-    │         │
-    ├─2─► Envoy Proxy (mTLS validation)
-    │         │
-    │         ├─3─► OPA Policy Engine (authorization check)
-    │         │         │
-    │         │         ├─► Query Splunk (risk score)
-    │         │         │
-    │         │         └─► Decision: allow/deny
-    │         │
-    │         ├─4─► If ALLOW → MongoDB (fetch data)
-    │         │
-    │         └─5─► Return response to client
-    │
-    └─► All steps logged to Splunk SIEM
-```
+| Servizio              | Ruolo                                                         |
+|-----------------------|---------------------------------------------------------------|
+| `firewall_perimeter`  | Routing perimetrale DNAT, filtraggio L3/L4, log NFTables      |
+| `ids_network_monitor` | IDS Snort 3 passivo sul percorso client-firewall              |
+| `pep_gateway`         | Envoy: terminazione mTLS, ext_authz gRPC verso OPA            |
+| `pdp_engine`          | OPA: policy ABAC, decision log su Splunk                      |
+| `api_backend`         | API REST per MongoDB; non esposta direttamente ai client       |
+| `db_primary`          | MongoDB 7: TLS obbligatorio, account applicativo limitato     |
+| `siem_central`        | Splunk Enterprise: HEC, alert, calcolo risk score dinamico    |
+| `swtpm_*`             | TPM emulati (profilo `testing`)                               |
+| `client_*_tpm`        | Client dimostrativi con chiave nel TPM (profilo `testing`)    |
 
 ---
 
-## 🛠️ **Technologies & Tools**
-
-### **Core Technologies**
-
-| Technology | Version | Purpose | Layer |
-|-----------|---------|---------|-------|
-| **Docker Desktop** | 4.38.0 | Container orchestration & management | Infrastructure |
-| **Docker Compose** | v2.30+ (integrated with Docker Desktop) | Multi-container deployment | Infrastructure |
-| **Windows 11** | 23H2+ | Host operating system | Infrastructure |
-| **Python** | 3.11+ | Automation & testing | Development |
-| **Poetry** | 1.7+ | Dependency management | Development |
-
-### **Security & Networking**
-
-| Tool | Purpose | Type | Protocols |
-|------|---------|------|-----------|
-| **NFTables** | Layer 3/4 firewall | Network Security | TCP/UDP/ICMP |
-| **Snort** | Network intrusion detection | NIDS | All IP protocols |
-| **Envoy Proxy** | Reverse proxy & PEP | Application Gateway | HTTP/2, gRPC |
-| **OpenSSL** | PKI & certificate management | Cryptography | TLS 1.2/1.3 |
-| **mTLS** | Mutual authentication | Security Protocol | X.509 certificates |
-
-### **Zero Trust Components**
-
-| Component | Technology | Role | Port |
-|-----------|------------|------|------|
-| **PEP** (Enforcement) | Envoy Proxy | Intercepts & enforces | 8443 |
-| **PDP** (Decision) | Open Policy Agent | Evaluates policies | 8181 |
-| **PAP** (Admin) | Rego files | Defines policies | N/A |
-| **PIP** (Info) | Splunk SIEM | Provides context | 8088 |
-
-### **Data & Storage**
-
-| Technology | Purpose | Features |
-|-----------|---------|----------|
-| **MongoDB** 7.0 | Primary database | TLS, RBAC, Audit logging |
-| **Splunk** 9.1 | SIEM & log aggregation | HEC, Dashboards, Alerting |
-
-### **Development & Testing**
-
-| Tool | Purpose | Usage |
-|------|---------|-------|
-| **IntelliJ IDEA Community** | IDE | Code editing & debugging |
-| **Pytest** | Testing framework | Unit & integration tests |
-| **Black** | Code formatter | Python code style |
-| **Ruff** | Linter | Fast Python linting |
-| **MyPy** | Type checker | Static type analysis |
-| **Bandit** | Security scanner | Python security issues |
-| **Trivy** | Container scanner | Docker image vulnerabilities |
-| **Make** | Task automation | Build & deploy commands |
-
-### **CI/CD**
-
-| Tool | Purpose |
-|------|---------|
-| **GitHub Actions** | Automated testing & deployment |
-| **Dependabot** | Dependency updates |
-| **Pre-commit** | Git hooks for code quality |
-
----
-
-## 📦 **The 12 Services**
-
-### **CORE Services (7 permanent containers)**
-
-| # | Service Name | Technology | Function | Ports | Networks |
-|---|-------------|------------|----------|-------|----------|
-| 1 | `firewall_perimeter` | NFTables | L3/L4 packet filtering | - | zerotrust, backend, monitoring, corporate, vpn, satellite, public |
-| 2 | `ids_network_monitor` | Snort 3 | Network intrusion detection | - | zerotrust, backend, monitoring, corporate, vpn, satellite, public |
-| 3 | `siem_central` | Splunk 9.1 | Security monitoring & correlation | 8000, 8088 | zerotrust, backend, monitoring |
-| 4 | `db_primary` | MongoDB 7.0 | Protected database with TLS | 27017 (internal) | backend (internal) |
-| 5 | `api_backend` | Node.js (API) | MongoDB data access layer | 3000 (internal) | backend |
-| 6 | `pdp_engine` | OPA 0.60 | Policy decision engine | 8181, 9191 | zerotrust, monitoring, corporate, vpn, satellite, public |
-| 7 | `pep_gateway` | Envoy 1.29 | mTLS proxy & enforcement | 8443, 9901 | zerotrust, backend, corporate, vpn, satellite, public |
-
-### **TESTING Clients (4 testing containers)**
-
-| # | Client Name | Profile | User Role | Network | Access Level |
-|---|------------|---------|-----------|---------|--------------|
-| 8 | `client_soc_admin` | Corporate HQ | `ruolo_gestione_flotta` (Fleet Management) | corporate_net | **Full access** |
-| 9 | `client_operatore_ancona` | VPN Remote | `ruolo_banchina` (Dock Operator) | vpn_net | **Medium access** |
-| 10 | `client_capitano_claudia` | Satellite Office | `ruolo_equipaggio` (Crew) | satellite_net | **Medium access** |
-| 11 | `client_intruso` | Public WiFi | `ruolo_non_autorizzato` (Unauthorized) | public_net | **Minimal / Blocked** |
-
-### **Service Dependencies**
+## Struttura delle directory
 
 ```
-Start Order (respecting dependencies):
-
-1. siem_central (Splunk) ──┐
-                            ├─► Must be healthy first
-2. db_primary (MongoDB) ────┘
-
-3. api_backend ────────────► Depends on: MongoDB (healthy)
-
-4. pdp_engine (OPA) ──────► Depends on: Splunk (started)
-
-5. pep_gateway (Envoy) ───► Depends on: OPA, api_backend
-
-6. firewall_perimeter ────► Can start anytime
-7. ids_network_monitor ───► Depends on: Splunk (started)
-
-8-11. clients_* ──────────► Depends on: Envoy (testing only, profile: testing)
+configs/
+  envoy/          Configurazione Envoy e filtro Lua
+  mongodb/        mongod.conf e script di inizializzazione
+  nftables/       Regole NFTables perimetrali
+  opa/            Policy Rego, dati statici, config OPA
+  snort/          snort-zta.lua e regole IDS
+  splunk/         default.yml e app opa_risk_updater
+scripts/
+  generate_certs.sh       Genera la PKI infrastrutturale
+  provision_tpm_devices.sh Provisioning certificati utente-dispositivo via SWTPM
+  preflight.sh            Verifica prerequisiti prima dell'avvio
+  clean_runtime.sh        Rimuove container, reti e volumi
+services/
+  api_backend/    Dockerfile e server Node.js
+  clients_tpm/    Dockerfile e script richiesta mTLS con TPM
+  envoy/          Dockerfile ed entrypoint (route di ritorno)
+  nftables/       Dockerfile ed entrypoint (ulogd + HEC)
+  snort/          Dockerfile multi-stage (build Snort 3)
+  swtpm/          Dockerfile e SWTPM emulato
+certs/            Directory vuote (generate localmente, escluse da Git)
+tests/            Riservato ai test automatici del gruppo
 ```
 
 ---
 
-## 🚀 **Quick Start**
+## Prerequisiti
 
-### **System Requirements**
+- Docker Desktop con **Docker Compose ≥ 2.36.0**
+  (il naming deterministico delle interfacce Snort/NFTables richiede questa versione)
+- Almeno **8 GB RAM** assegnati a Docker (consigliati 10-12 GB per Splunk + Snort)
+- **OpenSSL** e **Bash** per la generazione dei certificati
+- Su Windows: **Git Bash** oppure **WSL** per eseguire gli script `.sh`
 
-- **OS**: Windows 11 23H2+ (or Windows 10 22H2+)
-- **Docker**: Docker Desktop 4.38.0 (WSL 2 backend recommended)
-- **CPU**: 4 cores minimum (8 recommended)
-- **RAM**: 8 GB minimum (16 GB recommended)
-- **Disk**: 40 GB available space
-- **Network**: Internet connectivity for image downloads
+---
 
-### **Prerequisites Installation**
+## 1. Configurazione del file `.env`
 
-```powershell
-# 1. Install Docker Desktop 4.38.0
-# Download from https://www.docker.com/products/docker-desktop/
-# Enable WSL 2 backend during installation
-
-# 2. Install Python 3.11+ & Poetry
-# Download from https://www.python.org/downloads/windows/
-# Then install Poetry:
-(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
-
-# 3. Open a new PowerShell and verify
-docker --version
-docker compose version
-python --version
-poetry --version
-
-# 4. Enable WSL 2 integration (if not default)
-# Open Docker Desktop → Settings → Resources → WSL Integration
-# Ensure your distro is enabled
-```
-
-> **Note**: Docker Desktop 4.38.0 includes both Docker Engine and Docker Compose. No separate Linux package installation is needed.
-
-### **Project Setup**
-
+**Git Bash, WSL o Linux:**
 ```bash
-# 1. Extract project
-tar -xzf Project_Maritime_Zero_Trust_Architecture.tar.gz
-cd Project_Maritime_Zero_Trust_Architecture
-
-# 2. Install Python dependencies
-poetry install
-
-# 3. Configure environment
 cp .env.example .env
-nano .env  # Update passwords and secrets
-
-# 4. Generate PKI certificates (REQUIRED)
-make init-certs
-# or: poetry run python scripts/generate_certs.py
-
-# 5. Validate configuration
-make validate-config
-
-# 6. Start services
-make up
-
-# 7. Verify health
-make ps
-docker compose ps
-
-# 8. View logs
-make logs
+# Modificare le password CHANGE_ME e il token HEC
 ```
 
-### **First Test**
+**PowerShell:**
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Sostituire obbligatoriamente:
+
+| Variabile             | Descrizione                                      |
+|-----------------------|--------------------------------------------------|
+| `MONGO_ROOT_PASSWORD` | Password amministrativa MongoDB                  |
+| `MONGO_APP_PASSWORD`  | Password account applicativo MongoDB             |
+| `SPLUNK_PASSWORD`     | Password admin Splunk (min. 8 caratteri)         |
+| `SPLUNK_HEC_TOKEN`    | UUID valido per l'HTTP Event Collector di Splunk |
+
+---
+
+## 2. Generazione dei certificati
+
+Da **Git Bash, WSL o Linux**, nella directory principale del progetto:
 
 ```bash
-# Start testing clients
+bash scripts/generate_certs.sh
+```
+
+Lo script genera:
+
+- **CA radice** (`certs/ca/`)
+- **Certificato server Envoy** (`certs/server/`) — SAN: `pep_gateway`, `localhost`
+- **Certificato server MongoDB** (`certs/mongodb/`) — SAN: `db_primary`
+- **Certificato client API backend** (`certs/mongodb/api-client.pem`)
+- **Certificato client healthcheck** (`certs/mongodb/healthcheck-client.pem`)
+
+Le chiavi private non sono incluse nello ZIP e sono escluse da Git (`.gitignore`).
+
+---
+
+## 3. Provisioning TPM dei dispositivi
+
+Il certificato client lega l'identità utente al dispositivo tramite SAN URI SPIFFE.
+La chiave privata non viene esportata: rimane nel volume del TPM emulato.
+
+```bash
+bash scripts/provision_tpm_devices.sh
+```
+
+| Utente             | Ruolo                  | Dispositivo | Rete        |
+|--------------------|------------------------|-------------|-------------|
+| `operatore_ancona` | `ruolo_banchina`       | `D-001`     | VPN         |
+| `capitano_claudia` | `ruolo_equipaggio`     | `D-002`     | Satellite   |
+| `soc_admin`        | `ruolo_gestione_flotta`| `D-SOC`     | Corporate   |
+
+---
+
+## 4. Verifica preliminare
+
+```bash
+bash scripts/preflight.sh
+```
+
+Verifica la presenza dei certificati, del file `.env` e la validità del Compose.
+
+---
+
+## 5. Avvio del progetto
+
+```bash
+docker compose up -d --build
+```
+
+La prima build di Snort 3 richiede diversi minuti. Splunk impiega fino a 4 minuti
+per diventare disponibile.
+
+Verifica lo stato:
+
+```bash
+docker compose ps
+docker compose logs --tail 50 siem_central pdp_engine pep_gateway
+```
+
+---
+
+## 6. Accesso a Splunk
+
+URL: `http://localhost:8000`
+
+- Utente: `admin`
+- Password: valore `SPLUNK_PASSWORD` nel file `.env`
+
+Query utili:
+
+```spl
+index=main sourcetype=opa_decision
+index=main sourcetype=snort_alert_json
+index=main sourcetype=nftables
+index=main sourcetype=mongodb_log
+index=main sourcetype=envoy_access_json
+```
+
+---
+
+## 7. Richieste dimostrative
+
+Avviare i client TPM:
+
+```bash
 docker compose --profile testing up -d
-
-# Test mTLS connection
-make test-mtls
-
-# Run full test suite
-make test-all
 ```
 
-### **Access Web Interfaces**
-
-- **Splunk SIEM**: http://localhost:8000
-  - Username: `admin`
-  - Password: (from `.env` file)
-
-- **Envoy Admin**: http://localhost:9901
-  - Stats: http://localhost:9901/stats
-  - Clusters: http://localhost:9901/clusters
-
----
-
-## 📁 **Project Structure**
-
+**Operatore Ancona** (lettura manifesto carico):
+```bash
+docker compose --profile testing exec client_d001_tpm \
+  env METHOD=GET PATH_URL=/risorse/R-001 /scripts/request_with_tpm.sh
 ```
-Project_Maritime_Zero_Trust_Architecture/
-├── configs/                    # Service configurations
-│   ├── envoy/
-│   ├── opa/
-│   ├── mongodb/
-│   ├── splunk/
-│   ├── snort/
-│   └── nftables/
-│
-├── services/                   # Docker service definitions
-│   ├── envoy/
-│   ├── opa/
-│   ├── mongodb/
-│   ├── splunk/
-│   ├── snort/
-│   ├── nftables/
-│   └── clients/
-│
-├── scripts/                    # Python automation scripts
-│   ├── __init__.py
-│   ├── generate_certs.py      # PKI certificate generation
-│   ├── validate_config.py     # Configuration validation
-│   ├── run_tests.py           # Test orchestration
-│   └── security_audit.py      # Security auditing
-│
-├── tests/                      # Test suite
-│   ├── __init__.py
-│   ├── test_opa_policies.py   # Policy tests
-│   ├── test_network.py        # Network security tests
-│   ├── test_mtls.py           # mTLS validation
-│   └── test_integration.py    # End-to-end tests
-│
-├── docs/                       # Documentation
-│   ├── architecture.md        # Architecture details
-│   ├── security-model.md      # Security implementation
-│   ├── deployment.md          # Deployment guide
-│   ├── testing.md             # Testing guide
-│   └── diagrams/              # Architecture diagrams
-│
-├── certs/                      # PKI certificates (gitignored)
-│
-├── docker-compose.yml          # Main orchestration file
-├── .env.example                # Environment template
-├── .gitignore                  # Git ignore rules
-├── .editorconfig               # Code style config
-├── pyproject.toml              # Poetry dependencies
-├── Makefile                    # Development commands
-├── README.md                   # This file
-├── SECURITY.md                 # Security policy
-└── CHECKLIST.md                # Deployment checklist
+
+**Capitano** (lettura telemetria motori):
+```bash
+docker compose --profile testing exec client_d002_tpm \
+  env METHOD=GET PATH_URL=/risorse/R-002 /scripts/request_with_tpm.sh
+```
+
+**SOC admin** (lettura globale):
+```bash
+docker compose --profile testing exec client_dsoc_tpm \
+  env METHOD=GET PATH_URL=/all /scripts/request_with_tpm.sh
+```
+
+**SOC admin** (aggiornamento report sicurezza):
+```bash
+docker compose --profile testing exec client_dsoc_tpm \
+  env METHOD=PUT PATH_URL=/risorse/R-003 \
+  REQUEST_BODY='{"severita_massima":"critica"}' \
+  /scripts/request_with_tpm.sh
 ```
 
 ---
 
-## 🔐 **Security Features**
+## Flusso di autenticazione e autorizzazione
 
-### **Zero Trust Principles**
-
-1. **Never Trust, Always Verify**: Every request authenticated & authorized
-2. **Least Privilege Access**: Minimum permissions per role
-3. **Assume Breach**: Continuous monitoring & logging
-4. **Explicit Verification**: Context-aware authorization
-
-### **Authentication & Authorization**
-
-- **mTLS**: X.509 certificate-based authentication
-- **ABAC**: Attribute-based access control via OPA
-- **Risk Scoring**: Dynamic risk calculation based on:
-  - User identity & role
-  - Device type & posture
-  - Geographic location
-  - Time of access
-  - Behavioral patterns
-
-### **Network Security**
-
-- **NFTables**: L3/L4 firewall blocks direct database access
-- **Snort IDS**: 15+ custom rules detect Zero Trust violations
-- **Network Segmentation**: 5 isolated Docker networks
-- **Rate Limiting**: Per-user and global limits in Envoy
-
-### **Data Protection**
-
-- **TLS Everywhere**: All communication encrypted
-- **Database Encryption**: MongoDB with TLS-only mode
-- **RBAC**: 4 roles with granular permissions
-- **Audit Logging**: All access logged to Splunk
-
-### **Monitoring & Response**
-
-- **Real-time SIEM**: Splunk aggregates all logs
-- **Behavioral Analysis**: OPA queries Splunk for anomalies
-- **Automated Alerts**: Configured for critical events
-- **Dashboards**: Zero Trust metrics & KPIs
+1. Il client presenta un certificato firmato dalla CA; la chiave RSA è nel TPM.
+2. Envoy esegue il TLS handshake mTLS e verifica la CA.
+3. Il filtro Lua estrae `user_id` e `device_id` dal SAN URI del certificato:  
+   `spiffe://maritime.local/users/<utente>/devices/<dispositivo>`
+4. OPA valuta i seguenti attributi (policy ABAC):
+   - **Utente**: esiste nei ruoli? ha i permessi sulla risorsa e comando?
+   - **Dispositivo**: esiste ed è trusted?
+   - **Rete**: l'IP sorgente appartiene a una rete nota?
+   - **Binding**: esiste una regola che lega utente + dispositivo + rete?
+   - **Orario**: la richiesta è nella finestra temporale consentita?
+   - **Rischio**: il risk score dinamico è sotto la soglia del ruolo?
+5. Se OPA risponde `allow`, Envoy aggiunge gli header `x-zta-*` e invia la richiesta al backend.
+6. OPA invia la decisione a Splunk tramite HEC.
+7. La saved search di Splunk ricalcola il risk score ogni minuto e aggiorna il JSON letto da OPA.
 
 ---
 
-## 📚 **Documentation**
+## Gestione del rischio dinamico
 
-- **[CHECKLIST.md](CHECKLIST.md)** - Step-by-step deployment guide
-- **[SECURITY.md](SECURITY.md)** - Security policy & vulnerability reporting
-- **[docs/architecture.md](docs/architecture.md)** - Detailed architecture
-- **[docs/security-model.md](docs/security-model.md)** - Security implementation
-- **[docs/deployment.md](docs/deployment.md)** - Production deployment
-- **[docs/testing.md](docs/testing.md)** - Testing strategies
+Il risk score viene ricalcolato ogni minuto dalla saved search `Calcolo Dinamico Risk Score OPA`.  
+La logica è:
 
----
+| Condizione                        | Risk Score |
+|-----------------------------------|------------|
+| denied_count > 10                 | 95         |
+| denied_count > 5                  | 80         |
+| denied_count > 2                  | 50         |
+| unique_sources > 3                | 40         |
+| nessuna anomalia                  | 10         |
 
-## 🤝 **Contributing**
+Soglie massime per ruolo:
 
-1. Fork the repository
-2. Create a feature branch
-3. Run tests: `make test-all`
-4. Run security checks: `make security-check`
-5. Submit a pull request
-
----
-
-## 📄 **License**
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+| Ruolo                   | Max Risk Score |
+|-------------------------|----------------|
+| `ruolo_banchina`        | 50             |
+| `ruolo_equipaggio`      | 70             |
+| `ruolo_gestione_flotta` | 80             |
 
 ---
 
-## 🙏 **Acknowledgments**
+## Reti Docker
 
-- **NIST SP 800-207**: Zero Trust Architecture specification
-- **Open Policy Agent**: Policy engine framework
-- **Envoy Proxy**: Service mesh and API gateway
-- **Splunk**: SIEM platform
-- **Snort**: Intrusion detection system
-- **MongoDB**: Database platform
+| Rete              | CIDR predefinito   | Tipo     | Scopo                              |
+|-------------------|--------------------|----------|------------------------------------|
+| `zerotrust_net`   | `172.20.2.0/24`    | Bridge   | Envoy, OPA, firewall perimetrale   |
+| `backend_net`     | `172.20.3.0/24`    | Interno  | Envoy, API backend, MongoDB        |
+| `monitoring_net`  | `172.20.4.0/24`    | Interno  | OPA, firewall, Splunk              |
+| `corporate_net`   | `172.20.10.0/24`   | Bridge   | SOC e dispositivi corporate        |
+| `vpn_net`         | `172.20.11.0/24`   | Bridge   | Operatori remoti via VPN           |
+| `satellite_net`   | `172.20.12.0/24`   | Bridge   | Dispositivi di bordo               |
+| `public_net`      | `172.20.13.0/24`   | Bridge   | Segmento non fidato                |
 
----
-
-## 📞 **Support**
-
-- **Security Issues**: security@maritime-ops.local
-- **Technical Support**: support@maritime-ops.local
-- **Documentation**: [GitHub Wiki](https://github.com/your-org/maritime-zta/wiki)
+Le reti `backend_net` e `monitoring_net` sono dichiarate `internal: true`: i container
+su queste reti non hanno accesso a Internet e non sono raggiungibili dall'host.
 
 ---
 
-**Built with ❤️ for security-first operations** 🔒
+## Arresto e pulizia
 
-**Last Updated**: 2026-05-08  
-**Version**: 1.0.0  
-**Status**: Production Ready ✅
+Arresto standard:
+```bash
+docker compose --profile testing down
+```
+
+Pulizia completa (container, reti, volumi):
+```bash
+bash scripts/clean_runtime.sh
+```
+
+I certificati locali **non** vengono eliminati dallo script di pulizia.
+
+---
+
+## Risoluzione dei problemi più comuni
+
+**Errore "certificati mancanti" all'avvio di Envoy o MongoDB**  
+→ Eseguire `bash scripts/generate_certs.sh`
+
+**Il client TPM non trova `device.crt`**  
+→ Eseguire `bash scripts/provision_tpm_devices.sh`  
+→ Se la CA è stata rigenerata, rigenerare anche i certificati TPM
+
+**Splunk resta in stato `unhealthy` per più di 5 minuti**  
+→ Controllare con `docker logs siem_central`  
+→ Se il volume esiste da una versione precedente, eseguire `bash scripts/clean_runtime.sh` e riavviare
+
+**Conflitto tra subnet Docker e VPN locale**  
+→ Modificare tutte le variabili `NETWORK_*_SUBNET` in `.env`  
+→ Aggiornare gli indirizzi IP statici in `docker-compose.yml` e i CIDR in `configs/opa/data/networks.json`
+
+**Envoy restituisce HTTP 503 invece di 403**  
+→ OPA non è ancora disponibile o supera il timeout (1s); attendere che `pdp_engine` sia healthy
+
+---
+
+## Note di sicurezza
+
+- Il progetto è una simulazione didattica, non una configurazione production-ready.
+- Splunk HEC usa HTTP solo sulla rete Docker interna `monitoring_net`.
+- L'interfaccia REST di OPA è pubblicata su `127.0.0.1` per uso amministrativo locale.
+- Snort opera in modalità passiva: il payload TLS è cifrato e non ispezionabile.
+- L'identità hardware è simulata con SWTPM; su hardware reale si userebbe un TPM fisico o Secure Enclave.
+- JA3 è conservato come dato informativo nel seed MongoDB; il certificato hardware-bound è l'identità primaria.
+
+---
+
+## Limitazioni note
+
+- MongoDB è un'istanza singola (non replica set); la consegna non richiede la replica.
+- Splunk HEC usa HTTP sulla rete interna (non HTTPS); il traffico non lascia mai Docker.
+- Il naming deterministico delle interfacce NFTables/Snort richiede Docker Compose ≥ 2.36.0.
+- I test automatici sono gestiti separatamente dal gruppo.

@@ -1,0 +1,7 @@
+splunk:
+  start_args: "--accept-license"
+  home_ownership_enforcement: false
+  hec:
+    enable: true
+    ssl: false
+    port: 8088

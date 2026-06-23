@@ -1,1167 +1,488 @@
-# ============================================
-# Maritime - Zero Trust Architecture - Docker Compose
-# ============================================
+# Maritime Zero Trust Architecture
+# File Compose autorevole del progetto. Le reti client raggiungono Envoy
+# esclusivamente attraverso il firewall perimetrale.
+name: maritime-zta
 
 services:
-  # ============================================================================
-  # LAYER 4: OBSERVABILITY - SIEM
-  # ============================================================================
+  # SIEM centrale e ricevitore HEC.
 
   siem_central:
     image: splunk/splunk:9.1
     container_name: siem_central
     hostname: splunk-siem
     restart: unless-stopped
-
     networks:
-      zerotrust_net:
-        ipv4_address: 172.20.2.8
-      backend_net:
-        ipv4_address: 172.20.3.8
       monitoring_net:
         ipv4_address: 172.20.4.8
-
     ports:
-      - "8000:8000"
-      - "8088:8088"
-
+      - "127.0.0.1:${SPLUNK_WEB_PORT:-8000}:8000"
+      - "127.0.0.1:${SPLUNK_HEC_PORT:-8088}:8088"
     volumes:
       - splunk_data:/opt/splunk/var
       - splunk_etc:/opt/splunk/etc
-      - ./configs/splunk:/tmp/defaults:ro
-      - mongo_audit_logs:/var/log/mongodb
-      - snort_logs:/var/log/snort:ro
-      #- ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater:ro
-      - ./configs/opa/data:/opa_data
+      - ./configs/splunk/default.yml:/tmp/defaults/default.yml:ro
       - ./configs/splunk/apps/opa_risk_updater:/opt/splunk/etc/apps/opa_risk_updater
-
-      # Splunk attualmente usa il certificato auto-generato `SplunkServerDefaultCert`
-      # -> per usare il nostro certificato CA è necessario implementare
-      # -> modificando i file: `inputs.conf`, `server.conf`
-      # -> e aggiungendo nella sezione dei volumi:
-      # `./certs/ca/ca.crt:/ca/ca.crt:ro`
-
+      - ./configs/opa/data/risk_data:/opa_data/risk_data
+      - snort_logs:/var/log/snort:ro
+      - mongo_logs:/var/log/mongodb:ro
+      - envoy_logs:/var/log/envoy:ro
     environment:
-      - SPLUNK_START_ARGS=--accept-license
-      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
-     # - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-      - SPLUNK_ROLE=splunk_standalone
-      - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=false
-      - SPLUNK_DISABLE_POPUPS=true
-      - SPLUNK_HOME_OWNERSHIP_ENFORCEMENT=true
-      - SPLUNK_USER=root
-
+      SPLUNK_START_ARGS: --accept-license
+      SPLUNK_PASSWORD: ${SPLUNK_PASSWORD:?Definire SPLUNK_PASSWORD nel file .env}
+      SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN:?Definire SPLUNK_HEC_TOKEN nel file .env}
+      SPLUNK_ROLE: splunk_standalone
+      SPLUNK_HOME_OWNERSHIP_ENFORCEMENT: "false"
+      SPLUNK_DISABLE_POPUPS: "true"
+      SPLUNK_USER: root
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/en-US/account/login"]
-      interval: 15s
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/en-US/account/login"]
+      interval: 20s
       timeout: 10s
-      retries: 5
+      retries: 10
       start_period: 240s
-
-    logging:
-      driver: "json-file"
+    logging: &default_logging
+      driver: json-file
       options:
-        max-size: "10m"
+        max-size: 10m
         max-file: "3"
-
-  # ============================================================================
-  # LAYER 4: DATA - MongoDB
-  # ============================================================================
 
   db_primary:
     image: mongo:7.0
     container_name: db_primary
     hostname: mongo-primary
     restart: unless-stopped
-
     networks:
       backend_net:
         ipv4_address: 172.20.3.5
-
     volumes:
       - mongo_data:/data/db
       - mongo_config:/data/configdb
       - ./certs/mongodb:/certs/mongodb:ro
+      - ./certs/ca/ca.crt:/certs/ca/ca.crt:ro
       - ./configs/mongodb/mongod.conf:/etc/mongod.conf:ro
       - ./configs/mongodb/init-scripts:/docker-entrypoint-initdb.d:ro
-      - mongo_audit_logs:/var/log/mongodb
-
+      - mongo_logs:/var/log/mongodb
     command: ["mongod", "--config", "/etc/mongod.conf"]
-
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-      - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
-
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?Definire MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Definire MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-maritime_zta}
+      MONGO_DATABASE: ${MONGO_DATABASE:-maritime_zta}
+      MONGO_APP_USER: ${MONGO_APP_USER:?Definire MONGO_APP_USER}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Definire MONGO_APP_PASSWORD}
     healthcheck:
       test:
-        [
-          "CMD",
-          "mongosh",
-          "--host",
-          "172.20.3.5", # "db_primary",
-          "--tls",
-          "--tlsCAFile",
-          "/certs/mongodb/ca.crt",
-          "--tlsAllowInvalidCertificates", # add -> MongoNetworkError: self-signed certificate in certificate chain
-          "--username",
-          "${MONGO_ROOT_USER}",
-          "--password",
-          "${MONGO_ROOT_PASSWORD}",
-          "--authenticationDatabase",
-          "admin",
-          "--eval",
-          "db.adminCommand('ping')"
-        ]
+        - CMD
+        - mongosh
+        - --host
+        - db_primary
+        - --tls
+        - --tlsCAFile
+        - /certs/ca/ca.crt
+        - --tlsCertificateKeyFile
+        - /certs/mongodb/healthcheck-client.pem
+        - --username
+        - ${MONGO_ROOT_USER}
+        - --password
+        - ${MONGO_ROOT_PASSWORD}
+        - --authenticationDatabase
+        - admin
+        - --quiet
+        - --eval
+        - db.adminCommand('ping')
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ============================================================================
-  # LAYER 4: API BACKEND - MongoDB Data Access
-  # ============================================================================
+      timeout: 8s
+      retries: 8
+      start_period: 45s
+    logging: *default_logging
 
   api_backend:
     build:
       context: ./services/api_backend
       dockerfile: Dockerfile
     container_name: api_backend
-    hostname: api_backend
+    hostname: api-backend
     restart: unless-stopped
-
     networks:
       backend_net:
         ipv4_address: 172.20.3.20
-
     volumes:
-      - ./certs/mongodb/ca.crt:/certs/mongodb/ca.crt:ro
-
+      - ./certs/ca/ca.crt:/certs/ca/ca.crt:ro
+      - ./certs/mongodb/api-client.pem:/certs/mongodb/api-client.pem:ro
     environment:
-      - PORT=3000
-      - MONGO_HOST=${MONGO_HOST}
-      - MONGO_PORT=${MONGO_PORT}
-      - MONGO_DATABASE=${MONGO_DATABASE}
-      - MONGO_ROOT_USER=${MONGO_ROOT_USER}
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-      - MONGO_TLS_CA_FILE=${MONGO_TLS_CA_FILE}
-
+      PORT: ${API_PORT:-3000}
+      MONGO_HOST: ${MONGO_HOST:-db_primary}
+      MONGO_PORT: ${MONGO_PORT:-27017}
+      MONGO_DATABASE: ${MONGO_DATABASE:-maritime_zta}
+      MONGO_APP_USER: ${MONGO_APP_USER}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD}
+      MONGO_APP_AUTH_DB: ${MONGO_APP_AUTH_DB:-maritime_zta}
+      MONGO_TLS_CA_FILE: /certs/ca/ca.crt
+      MONGO_TLS_CERT_KEY_FILE: /certs/mongodb/api-client.pem
     depends_on:
       db_primary:
         condition: service_healthy
-
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "const http=require('http');const req=http.get('http://127.0.0.1:3000/health',res=>{process.exit(res.statusCode===200?0:1)});req.on('error',()=>process.exit(1));req.setTimeout(5000,()=>{req.destroy();process.exit(1)});"
-        ]
+      test: ["CMD", "node", "-e", "const h=require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1));h.on('error',()=>process.exit(1));h.setTimeout(5000,()=>{h.destroy();process.exit(1)});"]
       interval: 15s
-      timeout: 10s
+      timeout: 8s
       retries: 5
       start_period: 30s
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    # ============================================================================
-  # LAYER 2: POLICY DECISION POINT - OPEN POLICY AGENT
-  # ============================================================================
+    logging: *default_logging
 
   pdp_engine:
-    # Immagine OPA contenente il plugin Envoy External Authorization.
-    image: openpolicyagent/opa:latest-envoy
-
-    # Nome assegnato al container.
+    image: openpolicyagent/opa:1.17.1-envoy
     container_name: pdp_engine
-
-    # Nome host interno.
     hostname: opa-policy
-
-    # Riavvia OPA automaticamente.
     restart: unless-stopped
-
-    # Directory di lavoro interna.
     working_dir: /usr/share/opa-app
-
     networks:
-      # Rete attraverso la quale Envoy comunica con OPA.
       zerotrust_net:
         ipv4_address: 172.20.2.6
-
-      # Rete utilizzata da OPA per inviare i decision log a Splunk.
       monitoring_net:
         ipv4_address: 172.20.4.6
-
-    # La porta REST è pubblicata esclusivamente sull'interfaccia locale
-    # del computer, per consentire i test amministrativi.
-    #
-    # Non è raggiungibile dagli altri computer della rete locale.
     ports:
-      - "127.0.0.1:8181:8181"
-
-    # Documenta le porte utilizzate internamente.
-    #
-    # 8181: REST API di OPA.
-    # 9191: servizio gRPC ext_authz utilizzato da Envoy.
-    expose:
-      - "8181"
-      - "9191"
-
+      - "127.0.0.1:${OPA_REST_PORT:-8181}:8181"
+    expose: ["8181", "9191"]
     volumes:
-      # Configurazione principale di OPA.
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
-
-      # Policy Rego utilizzata per le decisioni.
-      - ./configs/opa/policies/test-policy.rego:/policies/test-policy.rego:ro
-
-      # Dati relativi ai ruoli.
+      - ./configs/opa/policies/authorization.rego:/policies/authorization.rego:ro
       - ./configs/opa/data/roles.json:/policies/roles.json:ro
-
-      # Dati relativi ai dispositivi.
       - ./configs/opa/data/devices.json:/policies/devices.json:ro
-
-      # Dati relativi alle reti.
       - ./configs/opa/data/networks.json:/policies/networks.json:ro
-
-      # Regole di associazione utente, dispositivo e rete.
       - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
-
-      # Directory contenente i risk score aggiornati da Splunk.
-      #
-      # Non è impostata come sola lettura perché il file viene aggiornato
-      # dal sistema di gestione dinamica del rischio.
       - ./configs/opa/data/risk_data:/policies/risk_data
-
     environment:
-      # Indirizzo di Splunk HEC.
-      #
-      # La configurazione effettiva dei decision log è definita anche
-      # nel file configs/opa/config.yaml.
-      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
-
-      # Token HEC definito nel file .env.
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-
-      # Parametri MongoDB mantenuti per compatibilità con gli script
-      # e le configurazioni esistenti.
-      - MONGODB_HOST=db_primary
-      - MONGODB_PORT=27017
-
+      SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN}
     command:
-      # Avvia OPA in modalità server.
       - run
-
-      # Abilita il server REST.
       - --server
-
-      # Espone la REST API su tutte le interfacce interne del container.
       - --addr=0.0.0.0:8181
-
-      # Carica la configurazione del plugin Envoy e dei decision log.
       - --config-file=/config/opa-config.yaml
-
-      # Livello di log utile per la fase di sviluppo e verifica.
-      - --log-level=debug
-
-      # Formato strutturato dei log.
+      - --log-level=info
       - --log-format=json
-
-      # Ricarica automaticamente policy e dati modificati.
       - --watch
-
-      # Directory contenente policy e dati.
       - /policies
-
-    depends_on:
-      # Splunk deve essere disponibile per ricevere i decision log.
-      siem_central:
-        condition: service_healthy
-
+    # OPA può avviarsi anche se Splunk non è ancora pronto; il logger ritenta
+    # senza rendere il piano decisionale dipendente dal SIEM.
     healthcheck:
-      # Verifica che il motore OPA sia in grado di valutare un'espressione.
-      test: [ "CMD", "/opa", "eval","1" ]
-#      test:
-#        - CMD
-#        - /opa
-#        - eval
-#        - "1"
+      test: ["CMD", "/opa", "eval", "1"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 30s
+    logging: *default_logging
 
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    # ============================================================================
-  # LAYER 2: ENFORCEMENT - Envoy Proxy PEP
-  # ============================================================================
+  firewall_perimeter:
+    build:
+      context: ./services/nftables
+      dockerfile: Dockerfile
+    container_name: firewall_perimeter
+    hostname: nft-firewall
+    restart: unless-stopped
+    networks:
+      zerotrust_net:
+        ipv4_address: 172.20.2.10
+        interface_name: zt0
+      monitoring_net:
+        ipv4_address: 172.20.4.10
+        interface_name: monitor0
+      corporate_net:
+        ipv4_address: 172.20.10.10
+        interface_name: corp0
+        aliases: [pep_gateway]
+      vpn_net:
+        ipv4_address: 172.20.11.10
+        interface_name: vpn0
+        aliases: [pep_gateway]
+      satellite_net:
+        ipv4_address: 172.20.12.10
+        interface_name: sat0
+        aliases: [pep_gateway]
+      public_net:
+        ipv4_address: 172.20.13.10
+        interface_name: public0
+        aliases: [pep_gateway]
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    volumes:
+      - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
+      - nftables_logs:/var/log/nftables
+    environment:
+      NFTABLES_ENVOY_IP: 172.20.2.7
+      NFTABLES_FW_CORPORATE_IP: 172.20.10.10
+      NFTABLES_FW_VPN_IP: 172.20.11.10
+      NFTABLES_FW_SATELLITE_IP: 172.20.12.10
+      NFTABLES_FW_PUBLIC_IP: 172.20.13.10
+      NFTABLES_CORPORATE_NET: ${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
+      NFTABLES_VPN_NET: ${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+      NFTABLES_SATELLITE_NET: ${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+      NFTABLES_PUBLIC_NET: ${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
+      NFTABLES_PEP_PORT: ${ENVOY_LISTENER_PORT:-8443}
+      NFTABLES_SPLUNK_HEC_URL: http://siem_central:8088/services/collector/event
+      NFTABLES_SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN}
+    healthcheck:
+      test: ["CMD-SHELL", "nft list table ip filter >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging: *default_logging
 
   pep_gateway:
-    # Costruisce l'immagine Envoy con lo script per le route di ritorno.
     build:
       context: ./services/envoy
       dockerfile: Dockerfile
-
     container_name: pep_gateway
     hostname: envoy-gateway
     restart: unless-stopped
-
-    # Envoy deve poter aggiungere le route verso le reti dei client.
-    cap_add:
-      - NET_ADMIN
-
+    cap_add: [NET_ADMIN]
     networks:
-      # Rete condivisa con OPA e firewall.
       zerotrust_net:
         ipv4_address: 172.20.2.7
-
-      # Rete condivisa con il backend API.
       backend_net:
         ipv4_address: 172.20.3.7
-
     volumes:
-      # Configurazione principale di Envoy.
       - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
-
-      # Filtro Lua che prepara i metadati per OPA.
       - ./configs/envoy/mongo_inspector.lua:/etc/envoy/mongo_inspector.lua:ro
-
-      # Certificato e chiave TLS del server Envoy.
       - ./certs/server:/certs:ro
-
-      # Certificato pubblico della CA.
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
-
-      # Log persistenti di Envoy.
       - envoy_logs:/var/log/envoy
-
     environment:
-      # Indirizzo del firewall nella rete Zero Trust.
-      - FIREWALL_ZEROTRUST_IP=172.20.2.10
-
-      # Sottoreti verso le quali Envoy deve rispondere passando dal firewall.
-      - NETWORK_CORPORATE_SUBNET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
-      - NETWORK_VPN_SUBNET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
-      - NETWORK_SATELLITE_SUBNET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
-      - NETWORK_PUBLIC_SUBNET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
-
-      # Collegamento a OPA.
-      - OPA_HOST=pdp_engine
-      - OPA_PORT=9191
-
-      # Collegamento al backend.
-      - API_BACKEND_HOST=api_backend
-      - API_BACKEND_PORT=3000
-
-      # Collegamento a Splunk.
-      - SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-
-    command:
-      - envoy
-      - -c
-      - /etc/envoy/envoy.yaml
-      - --log-level
-      - info
-
+      FIREWALL_ZEROTRUST_IP: 172.20.2.10
+      NETWORK_CORPORATE_SUBNET: ${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
+      NETWORK_VPN_SUBNET: ${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+      NETWORK_SATELLITE_SUBNET: ${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+      NETWORK_PUBLIC_SUBNET: ${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
     depends_on:
-      # Il firewall deve esistere prima che Envoy aggiunga le route.
       firewall_perimeter:
-        condition: service_started
-
-      # OPA deve essere disponibile.
+        condition: service_healthy
       pdp_engine:
         condition: service_healthy
-
-      # Il backend deve essere disponibile.
       api_backend:
         condition: service_healthy
-
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9901/ready"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 30s
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    # ============================================================================
-  # LAYER 1: NETWORK SECURITY - NFTables Firewall
-  # ============================================================================
-
-  firewall_perimeter:
-    build:
-      context: ./services/nftables
-      dockerfile: Dockerfile
-
-    container_name: firewall_perimeter
-    hostname: nft-firewall
-    restart: unless-stopped
-
-    # Il firewall collega le reti dei client con la rete Zero Trust.
-    networks:
-      # Rete tra firewall, Envoy e OPA.
-      zerotrust_net:
-        ipv4_address: 172.20.2.10
-        #interface_name: zt0
-
-      # Rete interna di API e MongoDB.
-      backend_net:
-        ipv4_address: 172.20.3.10
-        #interface_name: backend0
-
-      # Rete di monitoraggio e Splunk.
-      monitoring_net:
-        ipv4_address: 172.20.4.10
-        #interface_name: monitor0
-
-      # Rete corporate.
-      corporate_net:
-        ipv4_address: 172.20.10.10
-        #interface_name: corp0
-        aliases:
-          - pep_gateway
-
-      # Rete VPN.
-      vpn_net:
-        ipv4_address: 172.20.11.10
-        #interface_name: vpn0
-        aliases:
-          - pep_gateway
-
-      # Rete satellitare.
-      satellite_net:
-        ipv4_address: 172.20.12.10
-        #interface_name: sat0
-        aliases:
-          - pep_gateway
-
-      # Rete pubblica.
-      public_net:
-        ipv4_address: 172.20.13.10
-        #interface_name: public0
-        aliases:
-          - pep_gateway
-
-    # Permette di caricare le regole NFTables.
-    cap_add:
-      - NET_ADMIN
-
-    # Abilita il routing tra le reti.
-    sysctls:
-      net.ipv4.ip_forward: "1"
-
-    volumes:
-      # Regole definitive del firewall.
-      - ./configs/nftables/rules.nft:/etc/nftables/rules.nft:ro
-
-    environment:
-      # ---------------------------------
-      # Envoy reale nella rete Zero Trust.
-      - NFTABLES_ENVOY_IP=${NFTABLES_ENVOY_IP:-172.20.2.7}
-      # ---------------------------------
-      - NFTABLES_FW_ZT_IP=${FW_ZT_IP:-172.20.2.10}
-      - NFTABLES_FW_BACKEND_IP=${FW_BACKEND_IP:-172.20.3.10}
-      - NFTABLES_FW_MONITOR_IP=${FW_MONITOR_IP:-172.20.4.10}
-      - NFTABLES_FW_CORPORATE_IP=${FW_CORP_IP:-172.20.10.10}
-      - NFTABLES_FW_VPN_IP=${FW_VPN_IP:-172.20.11.10}
-      - NFTABLES_FW_SATELLITE_IP=${FW_SAT_IP:-172.20.12.10}
-      - NFTABLES_FW_PUBLIC_IP=${FW_PUBLIC_IP:-172.20.13.10}
-      - NFTABLES_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
-      - NFTABLES_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
-      - NFTABLES_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
-      - NFTABLES_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
-      # ---------------------------------
-      # Porta mTLS di Envoy.
-      - NFTABLES_PEP_PORT=${NFTABLES_PEP_PORT:-8443}
-      # ---------------------------------
-      - NFTABLES_FW_ZT_IFACE=${FW_ZT_IFACE}
-      - NFTABLES_FW_BACKEND_IFACE=${FW_BACKEND_IFACE}
-      - NFTABLES_FW_MONITOR_IFACE=${FW_MONITOR_IFACE}
-      - NFTABLES_FW_CORPORATE_IFACE=${FW_CORP_IFACE}
-      - NFTABLES_FW_VPN_IFACE=${FW_VPN_IFACE}
-      - NFTABLES_FW_SATELLITE_IFACE=${FW_SAT_IFACE}
-      - NFTABLES_FW_PUBLIC_IFACE=${FW_PUBLIC_IFACE}
-      # ---------------------------------
-      # Configurazione Splunk per i log NFTables.
-      - NFTABLES_SPLUNK_HEC_URL=http://siem_central:8088/services/collector/event
-      - NFTABLES_SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
-
-    healthcheck:
-      # La tabella utilizzata è "ip filter", non "inet filter".
-      test:
-        [
-          "CMD-SHELL",
-          "nft list table ip filter >/dev/null 2>&1 || exit 1"
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-   # ============================================================================
-  # LAYER 1: NETWORK SECURITY - SNORT IDS PASSIVO
-  # ============================================================================
+    logging: *default_logging
 
   ids_network_monitor:
-    # Costruisce Snort utilizzando il Dockerfile presente in services/snort.
     build:
       context: ./services/snort
       dockerfile: Dockerfile
-
-    # Nome assegnato al container.
     container_name: ids_network_monitor
-
-    # Riavvia il sensore automaticamente in caso di arresto.
     restart: unless-stopped
-
-    # Snort condivide il namespace di rete del firewall.
-    #
-    # Non possiede propri indirizzi IP e non riceve connessioni.
-    # Osserva invece le interfacce attraverso le quali il firewall
-    # inoltra il traffico verso Envoy.
-    network_mode: "service:firewall_perimeter"
-
-    # Capacità necessarie per catturare i pacchetti.
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-
-    # Evita che AppArmor impedisca la cattura dei pacchetti.
-    security_opt:
-      - apparmor:unconfined
-
+    network_mode: service:firewall_perimeter
+    cap_add: [NET_RAW, NET_ADMIN]
+    security_opt: [apparmor:unconfined]
     volumes:
-      # Configurazione principale di Snort.
       - ./configs/snort/snort-zta.lua:/etc/snort/snort-zta.lua:ro
-
-      # Regole personalizzate del progetto.
       - ./configs/snort/snort-zta.rules:/etc/snort/snort-zta.rules:ro
-
-      # Script di avvio di Snort.
-      - ./services/snort/entrypoint.sh:/scripts/entrypoint.sh:ro
-
-      # Volume condiviso contenente gli alert letti da Splunk.
       - snort_logs:/var/log/snort
-
     environment:
-      # Fuso orario.
-      - TZ=${TZ}
-
-      # Snort osserva tutte le interfacce del namespace del firewall.
-      - ZTA_SNORT_INTERFACES=corp0:vpn0:sat0:public0
-
-      # Insieme delle reti appartenenti all'architettura.
-      - ZTA_HOME_NET=[172.20.2.0/24,172.20.3.0/24,172.20.4.0/24,172.20.10.0/24,172.20.11.0/24,172.20.12.0/24,172.20.13.0/24]
-
-      # Singole reti utilizzate dalle regole.
-      - ZTA_PUBLIC_NET=${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
-      - ZTA_VPN_NET=${NETWORK_VPN_SUBNET:-172.20.11.0/24}
-      - ZTA_SATELLITE_NET=${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
-      - ZTA_CORPORATE_NET=${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
-      - ZTA_BACKEND_NET=${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
-
-      # Porte monitorate.
-      - ZTA_PEP_PORT=${SNORT_PORT_PEP:-8443}
-      - ZTA_OPA_PORTS=${SNORT_PORT_OPA:-[8181,9191]}
-      - ZTA_MONGO_PORT=${SNORT_PORT_MONGO:-27017}
-      - ZTA_API_PORT=${SNORT_PORT_API:-3000}
-      - ZTA_SIEM_PORTS=${SNORT_PORT_SIEM:-[8000,8088]}
-      - ZTA_ADMIN_PORT=${SNORT_PORT_ADMIN:-9901}
-
+      TZ: ${TZ:-Europe/Rome}
+      ZTA_SNORT_INTERFACES: corp0:vpn0:sat0:public0
+      ZTA_HOME_NET: "[172.20.2.0/24,172.20.3.0/24,172.20.4.0/24,172.20.10.0/24,172.20.11.0/24,172.20.12.0/24,172.20.13.0/24]"
+      ZTA_PUBLIC_NET: ${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
+      ZTA_VPN_NET: ${NETWORK_VPN_SUBNET:-172.20.11.0/24}
+      ZTA_SATELLITE_NET: ${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
+      ZTA_CORPORATE_NET: ${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
+      ZTA_BACKEND_NET: ${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
+      ZTA_PEP_PORT: ${ENVOY_LISTENER_PORT:-8443}
+      ZTA_OPA_PORTS: "[8181,9191]"
+      ZTA_MONGO_PORT: ${MONGO_PORT_INTERNAL:-27017}
+      ZTA_API_PORT: ${API_PORT:-3000}
+      ZTA_SIEM_PORTS: "[8000,8088]"
+      ZTA_ADMIN_PORT: ${ENVOY_ADMIN_PORT:-9901}
     depends_on:
-      # Snort può condividere la rete del firewall solamente quando
-      # il firewall è completamente avviato e le regole sono state caricate.
       firewall_perimeter:
         condition: service_healthy
-
-      # Splunk deve essere disponibile per raccogliere gli alert.
-      siem_central:
-        condition: service_healthy
-
     healthcheck:
-      # Il container è sano quando il processo Snort è attivo.
-      test: [ "CMD", "pgrep", "snort" ]
+      test: ["CMD", "pgrep", "snort"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
+    logging: *default_logging
 
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ============================================================================
-  # LAYER 0: DEVICE HARDWARE IDENTITY - SWTPM
-  # ============================================================================
-  # Ogni container SWTPM rappresenta il TPM emulato di un dispositivo.
-  # Il TPM appartiene al device, non all'utente.
-
-  swtpm_d001:
+  swtpm_d001: &swtpm_template
     build:
       context: ./services/swtpm
       dockerfile: Dockerfile
     container_name: swtpm_d001
     hostname: swtpm-d001
     restart: unless-stopped
-
     networks:
       vpn_net:
         ipv4_address: 172.20.11.30
-
     volumes:
       - swtpm_d001_state:/var/lib/swtpm
-
     environment:
-      - TPM_STATE_DIR=/var/lib/swtpm
-      - TPM_SERVER_PORT=2321
-      - TPM_CTRL_PORT=2322
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+      TPM_STATE_DIR: /var/lib/swtpm
+      TPM_SERVER_PORT: 2321
+      TPM_CTRL_PORT: 2322
+    profiles: [testing]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/2321"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    logging: *default_logging
 
   swtpm_d002:
-    build:
-      context: ./services/swtpm
-      dockerfile: Dockerfile
+    <<: *swtpm_template
     container_name: swtpm_d002
     hostname: swtpm-d002
-    restart: unless-stopped
-
     networks:
       satellite_net:
         ipv4_address: 172.20.12.30
-
     volumes:
       - swtpm_d002_state:/var/lib/swtpm
 
-    environment:
-      - TPM_STATE_DIR=/var/lib/swtpm
-      - TPM_SERVER_PORT=2321
-      - TPM_CTRL_PORT=2322
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
   swtpm_dsoc:
-    build:
-      context: ./services/swtpm
-      dockerfile: Dockerfile
+    <<: *swtpm_template
     container_name: swtpm_dsoc
     hostname: swtpm-dsoc
-    restart: unless-stopped
-
     networks:
       corporate_net:
         ipv4_address: 172.20.10.30
-
     volumes:
       - swtpm_dsoc_state:/var/lib/swtpm
 
-    environment:
-      - TPM_STATE_DIR=/var/lib/swtpm
-      - TPM_SERVER_PORT=2321
-      - TPM_CTRL_PORT=2322
-
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-  # ============================================================================
-  # TESTING CLIENTS TPM-BACKED
-  # ============================================================================
-  # Questi container rappresentano dispositivi con TPM.
-  # L'utente applicativo viene passato con USER_ID e può cambiare nei test.
-
-  client_d001_tpm:
+  client_d001_tpm: &client_tpm_template
     build:
       context: ./services/clients_tpm
       dockerfile: Dockerfile
     container_name: client_d001_tpm
     hostname: client-d001-tpm
     restart: "no"
-
     networks:
       vpn_net:
         ipv4_address: 172.20.11.31
-
     volumes:
       - ./certs/devices/D-001:/certs/device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
-      - ./certs/ca/ca.key:/ca/ca.key:ro
       - tpm_d001_client_state:/tpm
-
     environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - DEVICE_ID=D-001
-      - DEVICE_LOCATION=Terminal-Ancona
-      - USER_ID=operatore_ancona
-      - CLIENT_CERT=/certs/device/device.crt
-      - CA_CERT=/ca/ca.crt
-      - TPM_HANDLE=0x81000001
-      - TPM2TOOLS_TCTI=swtpm:host=swtpm_d001,port=2321
-      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d001,port=2321
-      - OPENSSL_MODULES=/usr/local/lib/ossl-modules
-
+      ENVOY_HOST: pep_gateway
+      ENVOY_PORT: 8443
+      USER_ID: operatore_ancona
+      DEVICE_ID: D-001
+      CLIENT_CERT: /certs/device/device.crt
+      CA_CERT: /ca/ca.crt
+      TPM_HANDLE: "0x81000001"
+      TPM2TOOLS_TCTI: swtpm:host=swtpm_d001,port=2321
+      TPM2OPENSSL_TCTI: swtpm:host=swtpm_d001,port=2321
+      OPENSSL_MODULES: /usr/local/lib/ossl-modules
+    command: ["tail", "-f", "/dev/null"]
     depends_on:
       swtpm_d001:
-        condition: service_started
-      pep_gateway:
-        condition: service_started
-
-    command: ["tail", "-f", "/dev/null"]
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+        condition: service_healthy
+    profiles: [testing]
+    logging: *default_logging
 
   client_d002_tpm:
-    build:
-      context: ./services/clients_tpm
-      dockerfile: Dockerfile
+    <<: *client_tpm_template
     container_name: client_d002_tpm
     hostname: client-d002-tpm
-    restart: "no"
-
     networks:
       satellite_net:
         ipv4_address: 172.20.12.31
-
     volumes:
       - ./certs/devices/D-002:/certs/device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
-      - ./certs/ca/ca.key:/ca/ca.key:ro
       - tpm_d002_client_state:/tpm
-
     environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - DEVICE_ID=D-002
-      - DEVICE_LOCATION=Ponte-Comando
-      - USER_ID=capitano_claudia
-      - CLIENT_CERT=/certs/device/device.crt
-      - CA_CERT=/ca/ca.crt
-      - TPM_HANDLE=0x81000002
-      - TPM2TOOLS_TCTI=swtpm:host=swtpm_d002,port=2321
-      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_d002,port=2321
-      - OPENSSL_MODULES=/usr/local/lib/ossl-modules
-
+      ENVOY_HOST: pep_gateway
+      ENVOY_PORT: 8443
+      USER_ID: capitano_claudia
+      DEVICE_ID: D-002
+      CLIENT_CERT: /certs/device/device.crt
+      CA_CERT: /ca/ca.crt
+      TPM_HANDLE: "0x81000002"
+      TPM2TOOLS_TCTI: swtpm:host=swtpm_d002,port=2321
+      TPM2OPENSSL_TCTI: swtpm:host=swtpm_d002,port=2321
+      OPENSSL_MODULES: /usr/local/lib/ossl-modules
     depends_on:
       swtpm_d002:
-        condition: service_started
-      pep_gateway:
-        condition: service_started
-
-    command: ["tail", "-f", "/dev/null"]
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+        condition: service_healthy
 
   client_dsoc_tpm:
-    build:
-      context: ./services/clients_tpm
-      dockerfile: Dockerfile
+    <<: *client_tpm_template
     container_name: client_dsoc_tpm
     hostname: client-dsoc-tpm
-    restart: "no"
-
     networks:
       corporate_net:
         ipv4_address: 172.20.10.31
-
     volumes:
       - ./certs/devices/D-SOC:/certs/device
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
-      - ./certs/ca/ca.key:/ca/ca.key:ro
       - tpm_dsoc_client_state:/tpm
-
     environment:
-      - ENVOY_HOST=pep_gateway
-      - ENVOY_PORT=8443
-      - DEVICE_ID=D-SOC
-      - DEVICE_LOCATION=SOC-Center
-      - USER_ID=soc_admin
-      - CLIENT_CERT=/certs/device/device.crt
-      - CA_CERT=/ca/ca.crt
-      - TPM_HANDLE=0x81000003
-      - TPM2TOOLS_TCTI=swtpm:host=swtpm_dsoc,port=2321
-      - TPM2OPENSSL_TCTI=swtpm:host=swtpm_dsoc,port=2321
-      - OPENSSL_MODULES=/usr/local/lib/ossl-modules
-
+      ENVOY_HOST: pep_gateway
+      ENVOY_PORT: 8443
+      USER_ID: soc_admin
+      DEVICE_ID: D-SOC
+      CLIENT_CERT: /certs/device/device.crt
+      CA_CERT: /ca/ca.crt
+      TPM_HANDLE: "0x81000003"
+      TPM2TOOLS_TCTI: swtpm:host=swtpm_dsoc,port=2321
+      TPM2OPENSSL_TCTI: swtpm:host=swtpm_dsoc,port=2321
+      OPENSSL_MODULES: /usr/local/lib/ossl-modules
     depends_on:
       swtpm_dsoc:
-        condition: service_started
-      pep_gateway:
-        condition: service_started
+        condition: service_healthy
 
-    command: ["tail", "-f", "/dev/null"]
-    profiles:
-      - testing
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-  # ============================================================================
-  # TESTING CLIENTS LEGACY
-  # ============================================================================
-  # Questi client usano ancora device.key su file.
-  # Dopo il provisioning TPM-backed dei certificati, per i test finali usare i client *_tpm.
-
-#  client_operatore_ancona:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: operatore_ancona
-#        CLIENT_ROLE: ruolo_banchina
-#    container_name: client_operatore_ancona
-#    hostname: client-operatore-ancona
-#    restart: "no"
-#
-#    networks:
-#      vpn_net:
-#        ipv4_address: 172.20.11.20
-#
-#    volumes:
-#      - ./certs/devices/D-001:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=operatore_ancona
-#      - CLIENT_ROLE=ruolo_banchina
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=operatore_ancona
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-#
-#  client_capitano_claudia:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: capitano_claudia
-#        CLIENT_ROLE: ruolo_equipaggio
-#    container_name: client_capitano_claudia
-#    hostname: client-capitano-claudia
-#    restart: "no"
-#
-#    networks:
-#      satellite_net:
-#        ipv4_address: 172.20.12.21
-#
-#    volumes:
-#      - ./certs/devices/D-002:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=capitano_claudia
-#      - CLIENT_ROLE=ruolo_equipaggio
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=capitano_claudia
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-#
-#  client_soc_admin:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: soc_admin
-#        CLIENT_ROLE: ruolo_gestione_flotta
-#    container_name: client_soc_admin
-#    hostname: client-soc-admin
-#    restart: "no"
-#
-#    networks:
-#      corporate_net:
-#        ipv4_address: 172.20.10.20
-#
-#    volumes:
-#      - ./certs/devices/D-SOC:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=soc_admin
-#      - CLIENT_ROLE=ruolo_gestione_flotta
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=soc_admin
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-#
-#  client_intruso:
-#    build:
-#      context: ./services/clients
-#      dockerfile: Dockerfile
-#      args:
-#        CLIENT_TYPE: intruso
-#        CLIENT_ROLE: ruolo_non_autorizzato
-#    container_name: client_intruso
-#    hostname: client-intruso
-#    restart: "no"
-#
-#    networks:
-#      public_net:
-#        ipv4_address: 172.20.13.21
-#
-#    volumes:
-#      - ./certs/devices/D-001:/certs/device:ro
-#      - ./certs/ca/ca.crt:/ca/ca.crt:ro
-#      - ./services/clients/scripts:/scripts:ro
-#
-#    environment:
-#      - ENVOY_HOST=pep_gateway
-#      - ENVOY_PORT=8443
-#      - DB_NAME=maritime_zta
-#      - CLIENT_NAME=intruso
-#      - CLIENT_ROLE=ruolo_non_autorizzato
-#      - CLIENT_CERT=/certs/device/device.crt
-#      - CLIENT_KEY=/certs/device/device.key
-#      - USER_ID=intruso
-#      - CA_CERT=/ca/ca.crt
-#
-#    depends_on:
-#      pep_gateway:
-#        condition: service_started
-#
-#    command: ["tail", "-f", "/dev/null"]
-#    profiles:
-#      - testing
-#
-#    logging:
-#      driver: "json-file"
-#      options:
-#        max-size: "5m"
-#        max-file: "2"
-
-# ==============================================================================
-# NETWORKS
-# ==============================================================================
-
+# Segmentazione: backend e monitoring sono reti Docker interne.
 networks:
   corporate_net:
     driver: bridge
     name: maritime-zta_corporate
-    ipam:
-      config:
-        - subnet: ${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}
-
+    ipam: {config: [{subnet: "${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}"}]}
   vpn_net:
     driver: bridge
     name: maritime-zta_vpn
-    ipam:
-      config:
-        - subnet: ${NETWORK_VPN_SUBNET:-172.20.11.0/24}
-
+    ipam: {config: [{subnet: "${NETWORK_VPN_SUBNET:-172.20.11.0/24}"}]}
   satellite_net:
     driver: bridge
     name: maritime-zta_satellite
-    ipam:
-      config:
-        - subnet: ${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
-
+    ipam: {config: [{subnet: "${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}"}]}
   public_net:
     driver: bridge
     name: maritime-zta_public
-    ipam:
-      config:
-        - subnet: ${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
-
+    ipam: {config: [{subnet: "${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}"}]}
   zerotrust_net:
     driver: bridge
     name: maritime-zta_zerotrust
-    ipam:
-      config:
-        - subnet: ${NETWORK_ZTA_SUBNET:-172.20.2.0/24}
-
+    ipam: {config: [{subnet: "${NETWORK_ZTA_SUBNET:-172.20.2.0/24}"}]}
   backend_net:
     driver: bridge
     name: maritime-zta_backend
     internal: true
-    ipam:
-      config:
-        - subnet: ${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}
-
+    ipam: {config: [{subnet: "${NETWORK_BACKEND_SUBNET:-172.20.3.0/24}"}]}
   monitoring_net:
     driver: bridge
     name: maritime-zta_monitoring
-    ipam:
-      config:
-        - subnet: ${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}
-
-# ==============================================================================
-# VOLUMES
-# ==============================================================================
+    internal: true
+    ipam: {config: [{subnet: "${NETWORK_MONITORING_SUBNET:-172.20.4.0/24}"}]}
 
 volumes:
-  mongo_data:
-    name: maritime-zta_mongo_data
-    driver: local
-
-  mongo_config:
-    name: maritime-zta_mongo_config
-    driver: local
-
-  mongo_audit_logs:
-    name: maritime-zta_mongo_audit_logs
-    driver: local
-
-  splunk_data:
-    name: maritime-zta_splunk_data
-    driver: local
-
-  splunk_etc:
-    name: maritime-zta_splunk_etc
-    driver: local
-
-  envoy_logs:
-    name: maritime-zta_envoy_logs
-    driver: local
-
-#  nftables_logs:
-#    name: maritime-zta_nftables_logs
-#    driver: local
-
-  snort_logs:
-    name: maritime-zta_snort_logs
-    driver: local
-
-  swtpm_d001_state:
-    name: maritime-zta_swtpm_d001_state
-    driver: local
-
-  swtpm_d002_state:
-    name: maritime-zta_swtpm_d002_state
-    driver: local
-
-  swtpm_dsoc_state:
-    name: maritime-zta_swtpm_dsoc_state
-    driver: local
-
-  tpm_d001_client_state:
-    name: maritime-zta_tpm_d001_client_state
-    driver: local
-
-  tpm_d002_client_state:
-    name: maritime-zta_tpm_d002_client_state
-    driver: local
-
-  tpm_dsoc_client_state:
-    name: maritime-zta_tpm_dsoc_client_state
-    driver: local
-
-
-
-
+  mongo_data: {name: maritime-zta_mongo_data}
+  mongo_config: {name: maritime-zta_mongo_config}
+  mongo_logs: {name: maritime-zta_mongo_logs}
+  envoy_logs: {name: maritime-zta_envoy_logs}
+  splunk_data: {name: maritime-zta_splunk_data}
+  splunk_etc: {name: maritime-zta_splunk_etc}
+  snort_logs: {name: maritime-zta_snort_logs}
+  nftables_logs: {name: maritime-zta_nftables_logs}
+  swtpm_d001_state: {name: maritime-zta_swtpm_d001_state}
+  swtpm_d002_state: {name: maritime-zta_swtpm_d002_state}
+  swtpm_dsoc_state: {name: maritime-zta_swtpm_dsoc_state}
+  tpm_d001_client_state: {name: maritime-zta_tpm_d001_client_state}
+  tpm_d002_client_state: {name: maritime-zta_tpm_d002_client_state}
+  tpm_dsoc_client_state: {name: maritime-zta_tpm_dsoc_client_state}

@@ -1,29 +1,16 @@
-# =========================================================================
-# GLOBAL DOCKER IGNORE - MARITIME ZTA
-# =========================================================================
-
-# 1. CRITICAL SECURITY: Block all local cryptography
-# Containers that need certificates should use them via volumes,
-# THEY MUST NEVER be included or copied into an image.
-certs/
-
-# 2. Development environment files and heavy dependencies
-.venv/
-venv/
-poetry.lock
-pyproject.toml
-__pycache__/
-*.pyc
-
-# 3. IDE and operating system settings
-.idea/
-.vscode/
+.git
+.gitignore
+.env
+certs/**
+!certs/**/.gitkeep
+node_modules
+**/node_modules
+logs
+**/*.log
+tests/**/out
+*.zip
+*.pdf
+.idea
+.vscode
 .DS_Store
 Thumbs.db
-
-# 4. Version control and local documentation
-.git/
-.gitignore
-.gitattributes
-*.md
-docs/

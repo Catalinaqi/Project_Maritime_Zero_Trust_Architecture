@@ -1,93 +1,70 @@
-# =============================================================================
-# Dockerfile for Snort 3 IDS Container (ZTA MASTER VERSION)
-# =============================================================================
-# Author: Network Guardian (Snort/IDS)
-# Component: Layer 1 & L7 Intrusion Detection System
-# Purpose: Compiles Snort 3.9.2.0. Optimized for ZTA dynamic environments.
-# =============================================================================
-
-# ============================================
-# STAGE 1: Build Environment (The "Constructor")
-# ============================================
+# Build multi-stage di Snort 3 per il sensore IDS del progetto.
+# Il numero di processi di compilazione è limitato per evitare che Docker
+# Desktop esaurisca memoria durante la build e interrompa BuildKit con EOF.
 FROM ubuntu:22.04 AS builder
+
+ARG SNORT_VERSION=3.9.2.0
+ARG LIBDAQ_VERSION=v3.0.20
+ARG BUILD_JOBS=2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# STEP 1: Install Build Dependencies
-RUN apt-get update && \
-    apt-get install --no-install-recommends -y \
-        build-essential cmake pkg-config flex bison git ca-certificates \
-        wget libtool autoconf automake libpcap-dev \
-        libhwloc-dev libssl-dev libpcre2-dev libluajit-5.1-dev \
-        liblzma-dev zlib1g-dev uuid-dev libmnl-dev libfl-dev \
-        libnuma1 \
-        libdumbnet-dev && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install --no-install-recommends -y \
+      autoconf automake bison build-essential ca-certificates cmake flex git \
+      libdumbnet-dev libfl-dev libhwloc-dev liblzma-dev libmnl-dev \
+      libnuma1 libpcap-dev libpcre2-dev libssl-dev libtool \
+      libluajit-5.1-dev pkg-config uuid-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# STEP 2: Path Shimming (The "Bridge")
-RUN ln -sf /usr/include/dumbnet.h /usr/include/dnet.h && \
-    ln -sf /usr/lib/x86_64-linux-gnu/libdumbnet.so /usr/lib/x86_64-linux-gnu/libdnet.so && \
-    ldconfig
+# Snort cerca libdnet; Ubuntu distribuisce la stessa libreria come libdumbnet.
+RUN ln -sf /usr/include/dumbnet.h /usr/include/dnet.h \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libdumbnet.so /usr/lib/x86_64-linux-gnu/libdnet.so \
+    && ldconfig
 
 WORKDIR /tmp
 
-# STEP 3: Build libdaq
-RUN git clone https://github.com/snort3/libdaq.git && \
-    cd libdaq && ./bootstrap && ./configure && \
-    make -j$(nproc) && make install && ldconfig
+# Compila LibDAQ usando un numero controllato di processi paralleli.
+RUN git clone --branch "${LIBDAQ_VERSION}" --depth 1 https://github.com/snort3/libdaq.git \
+    && cd libdaq \
+    && ./bootstrap \
+    && ./configure \
+    && make -j"${BUILD_JOBS}" \
+    && make install \
+    && ldconfig
 
-# STEP 4: Build Snort 3 (Version 3.9.2.0)
-RUN git clone --branch 3.9.2.0 --depth 1 https://github.com/snort3/snort3.git && \
-    cd snort3 && \
-    mkdir build && cd build && \
-    cmake .. \
-        -DCMAKE_INSTALL_PREFIX=/usr/local \
-        -DENABLE_TCMALLOC=OFF \
-        -DDNET_INCLUDE_DIR=/usr/include \
-        -DFLEX_INCLUDE_DIR=/usr/include && \
-    make -j$(nproc) && \
-    make install && \
-    ldconfig
+# Compila Snort limitando esplicitamente il parallelismo.
+RUN git clone --branch "${SNORT_VERSION}" --depth 1 https://github.com/snort3/snort3.git \
+    && cmake -S snort3 -B snort3/build \
+         -DCMAKE_INSTALL_PREFIX=/usr/local \
+         -DENABLE_TCMALLOC=OFF \
+         -DDNET_INCLUDE_DIR=/usr/include \
+         -DFLEX_INCLUDE_DIR=/usr/include \
+    && cmake --build snort3/build --parallel "${BUILD_JOBS}" \
+    && cmake --install snort3/build
 
-# ============================================
-# STAGE 2: Runtime Image (The "Guardian")
-# ============================================
 FROM ubuntu:22.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# STEP 5: Install Runtime Libraries Only (Incluye gettext-base para envsubst)
-RUN apt-get update && \
-    apt-get install --no-install-recommends -y \
-        libpcap0.8 libdumbnet1 hwloc libssl3 libpcre2-8-0 libluajit-5.1-2 \
-        liblzma5 zlib1g libuuid1 libmnl0 ca-certificates bash \
-        libnuma1 iproute2 \
-        tzdata tini tcpdump gettext-base \
-        jq ethtool curl iputils-ping && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install --no-install-recommends -y \
+      bash ca-certificates curl ethtool gettext-base hwloc iproute2 \
+      iputils-ping jq libdumbnet1 libluajit-5.1-2 liblzma5 libmnl0 \
+      libnuma1 libpcap0.8 libpcre2-8-0 libssl3 libuuid1 psmisc \
+      tcpdump tini tzdata zlib1g \
+    && rm -rf /var/lib/apt/lists/*
 
-# STEP 6: Transfer the "Brain"
 COPY --from=builder /usr/local/ /usr/local/
-RUN ldconfig
 
-# STEP 7: System Hardening & Directory Prep
-RUN groupadd --gid 1000 snort && \
-    useradd --uid 1000 --gid snort --no-create-home --shell /bin/bash snort && \
-    mkdir -p /etc/snort/rules /var/log/snort /scripts && \
-    chown -R snort:snort /etc/snort /var/log/snort /scripts && \
-    chmod 755 /var/log/snort
+RUN ldconfig \
+    && groupadd --gid 1000 snort \
+    && useradd --uid 1000 --gid snort --no-create-home --shell /bin/bash snort \
+    && mkdir -p /etc/snort/rules /var/log/snort /scripts \
+    && chown -R snort:snort /etc/snort /var/log/snort /scripts \
+    && chmod 755 /var/log/snort
 
-# STEP 8: Copy Entrypoint Only
-# Las reglas y configuraciones se montarán dinámicamente vía volumen en el compose.
 COPY entrypoint.sh /scripts/entrypoint.sh
+RUN sed -i 's/\r$//' /scripts/entrypoint.sh \
+    && chmod 0755 /scripts/entrypoint.sh
 
-# Asegurar que el entrypoint sea ejecutable
-RUN chmod +x /scripts/entrypoint.sh
-
-# STEP 9: Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD pgrep snort || exit 1
-
-# STEP 10: ZTA Execution Setup
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/scripts/entrypoint.sh"]

@@ -29,31 +29,9 @@ req_command := object.get(request_metadata, "command", "unknown")
 # IDENTITÀ DISPOSITIVO DA CERTIFICATO mTLS
 # ============================================================================
 
-device_principal := object.get(input.attributes.source, "principal", "")
-
-device_id := "D-001" if {
-    contains(device_principal, "CN=D-001")
-}
-
-device_id := "D-001" if {
-    contains(device_principal, "CN = D-001")
-}
-
-device_id := "D-002" if {
-    contains(device_principal, "CN=D-002")
-}
-
-device_id := "D-002" if {
-    contains(device_principal, "CN = D-002")
-}
-
-device_id := "D-SOC" if {
-    contains(device_principal, "CN=D-SOC")
-}
-
-device_id := "D-SOC" if {
-    contains(device_principal, "CN = D-SOC")
-}
+# Il filtro Lua ricava device_id dal CN del certificato verificato da Envoy.
+# Non vengono usati header controllabili dal client.
+device_id := object.get(request_metadata, "device_id", "unknown")
 
 # ============================================================================
 # PROFILI UTENTE E DISPOSITIVO
@@ -166,30 +144,87 @@ specific_resource_allowed if {
 
 # ============================================================================
 # CONTROLLO FASCIA ORARIA
+#
+# L'ora corrente viene ricavata con time.clock(), evitando divisioni
+# sui nanosecondi che possono produrre valori non interi e regole undefined.
+#
+# Le finestre sono espresse nel formato HH:MM.
+# Sono gestiti:
+# - intervalli normali, ad esempio 06:00-22:00;
+# - intervalli che attraversano la mezzanotte, ad esempio 22:00-06:00;
+# - start == end come blocco totale, secondo una logica fail-secure.
 # ============================================================================
 
-time_allowed(profile) if {
-    profile.time_window_start
-    profile.time_window_end
+# Restituisce [ora, minuto, secondo] in UTC.
+current_clock := time.clock(time.now_ns())
+
+# Ora corrente in minuti dall'inizio della giornata.
+current_time_minutes := total if {
+    hours := current_clock[0]
+    minutes := current_clock[1]
+    total := (hours * 60) + minutes
 }
+
+# Rappresentazione diagnostica HH:MM.
+current_time_str := sprintf("%02d:%02d", [
+    current_clock[0],
+    current_clock[1],
+])
+
+# Converte una stringa HH:MM in minuti dall'inizio della giornata.
+time_string_to_minutes(value) := total if {
+    parts := split(value, ":")
+    count(parts) == 2
+
+    hours := to_number(parts[0])
+    minutes := to_number(parts[1])
+
+    hours >= 0
+    hours <= 23
+    minutes >= 0
+    minutes <= 59
+
+    total := (hours * 60) + minutes
+}
+
+# Intervallo normale, ad esempio 06:00-22:00.
+time_allowed(profile) if {
+    start := time_string_to_minutes(profile.time_window_start)
+    end := time_string_to_minutes(profile.time_window_end)
+
+    start < end
+    current_time_minutes >= start
+    current_time_minutes <= end
+}
+
+# Intervallo che attraversa la mezzanotte: parte serale.
+time_allowed(profile) if {
+    start := time_string_to_minutes(profile.time_window_start)
+    end := time_string_to_minutes(profile.time_window_end)
+
+    start > end
+    current_time_minutes >= start
+}
+
+# Intervallo che attraversa la mezzanotte: parte mattutina.
+time_allowed(profile) if {
+    start := time_string_to_minutes(profile.time_window_start)
+    end := time_string_to_minutes(profile.time_window_end)
+
+    start > end
+    current_time_minutes <= end
+}
+
+# Nessuna regola copre start == end:
+# la finestra viene quindi negata in modo fail-secure.
 
 # ============================================================================
 # CONTROLLO RISK SCORE DINAMICO
+#
+# Il risk score viene aggiornato da Splunk tramite opa_risk_updater.py
+# e scritto nel file configs/opa/data/risk_data/risk_scores.json,
+# montato in OPA come data.risk_data.risk_scores.
 # ============================================================================
-
-#risk_score := score if {
-#    score := data.risk_data.risk_scores.risk_scores[user_id].risk_score
-#} else := 0
-
-# Recupera il risk score dell'utente corrente.
-# Il dato arriva dal file:
-# configs/opa/data/risk_data/risk_scores.json
-#
-# Dentro OPA il path diventa:
-# data.risk_data.risk_scores
-#
-# Esempio:
-# data.risk_data.risk_scores["operatore_ancona"].risk_score = 10
 
 risk_score := object.get(
     object.get(data.risk_data.risk_scores, user_id, {}),
