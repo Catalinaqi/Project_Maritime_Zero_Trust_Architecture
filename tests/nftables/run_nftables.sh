@@ -29,21 +29,15 @@ else
     exit 1
 fi
 
-# 3. Validar variables para el Renombrado Dinámico de Interfaces (Step 2.5)
-echo -e "\n${YELLOW}[3] Validando variables de Interfaces e IPs (Step 2.5)...${NC}"
-REQUIRED_IFACE_VARS=(
-    "FW_ZT_IP"      "FW_ZT_IFACE"
-    "FW_BACKEND_IP" "FW_BACKEND_IFACE"
-    "FW_MONITOR_IP" "FW_MONITOR_IFACE"
-    "FW_CORP_IP"    "FW_CORP_IFACE"
-    "FW_VPN_IP"     "FW_VPN_IFACE"
-    "FW_SAT_IP"     "FW_SAT_IFACE"
-    "FW_PUBLIC_IP"  "FW_PUBLIC_IFACE"
+# 3. Validar variables ESTRICTAMENTE necesarias en el .env
+echo -e "\n${YELLOW}[3] Validando variables requeridas en .env...${NC}"
+# Como Compose maneja las IPs, solo verificamos tokens o secretos sin fallback
+REQUIRED_ENV_VARS=(
+  "SPLUNK_HEC_TOKEN"
 )
 
 ALL_VARS_OK=true
-for var in "${REQUIRED_IFACE_VARS[@]}"; do
-    # Usamos indirección para obtener el valor de la variable cuyo nombre está en $var
+for var in "${REQUIRED_ENV_VARS[@]}"; do
     val="${!var:-}"
     if [ -z "$val" ]; then
         echo -e "${RED} [ERROR] Falta la variable ${var} en tu archivo .env${NC}"
@@ -52,32 +46,49 @@ for var in "${REQUIRED_IFACE_VARS[@]}"; do
 done
 
 if [ "$ALL_VARS_OK" = false ]; then
-    echo -e "${RED} -> Abortando. Faltan variables críticas para renombrar las interfaces del Firewall.${NC}"
+    echo -e "${RED} -> Abortando. Faltan secretos en el .env requeridos por el contenedor.${NC}"
     exit 1
 else
-    echo -e "${GREEN} -> Todas las IPs e Interfaces están configuradas correctamente.${NC}"
+    echo -e "${GREEN} -> Validación de secretos correcta.${NC}"
 fi
 
-# 4. Simular el envsubst (Paso 3 del entrypoint)
-echo -e "\n${YELLOW}[4] Simulando renderizado de rules.nft...${NC}"
+# 4. Simular el entorno de Docker Compose y renderizar rules.nft
+echo -e "\n${YELLOW}[4] Simulando renderizado local de rules.nft (Docker Compose Mock)...${NC}"
+
+# Exportamos las variables simulando lo que hace Docker Compose antes de ejecutar envsubst
+export NFTABLES_ENVOY_IP="172.20.2.7"
+export NFTABLES_FW_CORPORATE_IP="172.20.10.10"
+export NFTABLES_FW_VPN_IP="172.20.11.10"
+export NFTABLES_FW_SATELLITE_IP="172.20.12.10"
+export NFTABLES_FW_PUBLIC_IP="172.20.13.10"
+# Usamos las variables del .env si existen, o los fallbacks definidos en tu Compose
+export NFTABLES_CORPORATE_NET="${NETWORK_CORPORATE_SUBNET:-172.20.10.0/24}"
+export NFTABLES_VPN_NET="${NETWORK_VPN_SUBNET:-172.20.11.0/24}"
+export NFTABLES_SATELLITE_NET="${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}"
+export NFTABLES_PUBLIC_NET="${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}"
+export NFTABLES_PEP_PORT="${ENVOY_LISTENER_PORT:-8443}"
+
 RULES_SRC="./configs/nftables/rules.nft"
 RULES_RENDERED="./configs/nftables/preview_rules.nft"
 
 if command -v envsubst >/dev/null 2>&1; then
     mkdir -p ./configs/nftables/
-    envsubst < "$RULES_SRC" > "$RULES_RENDERED"
+
+    # Ejecutamos la sustitución usando las variables recién exportadas
+    envsubst '${NFTABLES_ENVOY_IP} ${NFTABLES_FW_CORPORATE_IP} ${NFTABLES_FW_VPN_IP} ${NFTABLES_FW_SATELLITE_IP} ${NFTABLES_FW_PUBLIC_IP} ${NFTABLES_CORPORATE_NET} ${NFTABLES_VPN_NET} ${NFTABLES_SATELLITE_NET} ${NFTABLES_PUBLIC_NET} ${NFTABLES_PEP_PORT}' \
+      < "$RULES_SRC" > "$RULES_RENDERED"
 
     # Revisar si quedaron variables sin resolver
     if grep -q '\${' "$RULES_RENDERED"; then
-        echo -e "${RED} [ERROR] Faltan variables. Quedaron referencias sin resolver:${NC}"
+        echo -e "${RED} [ERROR] Faltan variables. Quedaron referencias sin resolver en el preview:${NC}"
         grep -n '\${' "$RULES_RENDERED"
         echo -e "${RED} -> Abortando el despliegue para prevenir fallos en el contenedor.${NC}"
-        exit 1 # Detenemos el script aquí si hay errores
+        exit 1
     else
-        echo -e "${GREEN} -> Renderizado exitoso. Archivo generado en: preview_rules.nft${NC}"
+        echo -e "${GREEN} -> Renderizado simulado con éxito. Archivo generado en: ./configs/nftables/preview_rules.nft${NC}"
     fi
 else
-    echo -e "${RED} [ADVERTENCIA] Comando 'envsubst' no encontrado en tu sistema.${NC}"
+    echo -e "${RED} [ADVERTENCIA] Comando 'envsubst' no encontrado localmente en tu sistema.${NC}"
     echo " Omitiendo simulación de reglas..."
 fi
 
@@ -94,10 +105,9 @@ fi
 
 # 6. Levantar el contenedor y mostrar los logs del Entrypoint
 echo -e "\n${YELLOW}[6] Levantando el contenedor del Firewall (Fase 2)...${NC}"
-if docker compose up -d firewall_perimeter; then
+if docker compose up -d --force-recreate firewall_perimeter; then
     echo -e "${GREEN} -> Contenedor arriba. Conectando a los logs del Entrypoint...${NC}"
     echo -e "${CYAN}--------------------------------------------------------------------------------${NC}"
-    # Mostrar los logs en vivo para ver las validaciones internas de Alpine
     docker compose logs -f firewall_perimeter
 else
     echo -e "${RED} [ERROR] Falló el despliegue del contenedor.${NC}"

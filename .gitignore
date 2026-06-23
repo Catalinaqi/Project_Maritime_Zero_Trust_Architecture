@@ -46,3 +46,11 @@ Desktop.ini
 test-results/
 test-reports/
 tests/**/out/
+
+# run nftables
+.run_nftables.sh
+
+
+# continue +  deepseek
+.continue_cyber/
+.continuerc.yml
