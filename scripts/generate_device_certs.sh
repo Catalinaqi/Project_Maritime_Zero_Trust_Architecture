@@ -230,13 +230,26 @@ EXTENSIONS
   [[ "${cert_pub_hash}" == "${tpm_pub_hash}" ]] || \
     fail "Il certificato ${user_id}/${device_id} non corrisponde alla chiave TPM"
 
-  openssl x509 -in "${cert_file}" -noout -subject |
-    grep -Fq "OU = ${user_id}" || \
-    fail "OU utente errata nel certificato ${user_id}/${device_id}"
+  # RFC2253 produce un formato stabile tra versioni OpenSSL, senza dipendere
+  # dalla presenza di spazi attorno al carattere "=".
+  subject_rfc2253="$(
+    openssl x509 \
+      -in "${cert_file}" \
+      -noout \
+      -subject \
+      -nameopt RFC2253
+  )"
+  subject_rfc2253="${subject_rfc2253#subject=}"
 
-  openssl x509 -in "${cert_file}" -noout -subject |
-    grep -Fq "CN = ${device_id}" || \
-    fail "CN dispositivo errato nel certificato ${user_id}/${device_id}"
+  case ",${subject_rfc2253}," in
+    *",OU=${user_id},"*) ;;
+    *) fail "OU utente errata nel certificato ${user_id}/${device_id}" ;;
+  esac
+
+  case ",${subject_rfc2253}," in
+    *",CN=${device_id},"*) ;;
+    *) fail "CN dispositivo errato nel certificato ${user_id}/${device_id}" ;;
+  esac
 
   openssl x509 -in "${cert_file}" -noout -ext subjectAltName |
     grep -Fq "URI:${spiffe_uri}" || \
