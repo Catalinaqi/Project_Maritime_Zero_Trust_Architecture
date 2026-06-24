@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Converte il lookup Splunk dei rischi nel documento JSON osservato da OPA.
 """
 Aggiornamento dei risk score OPA da Splunk.
 

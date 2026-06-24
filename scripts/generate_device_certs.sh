@@ -169,7 +169,7 @@ sign_identity_csr() {
   local ca_copy="${identity_dir}/ca.crt"
   local extension_file="${identity_dir}/identity.ext"
 
-  local spiffe_uri="spiffe://maritime-zta/user/${user_id}/device/${device_id}"
+  local spiffe_uri="spiffe://maritime.local/users/${user_id}/devices/${device_id}"
   local serial_hex
   local cert_pub_hash
   local tpm_pub_hash
@@ -369,6 +369,20 @@ wait_for_swtpm swtpm_d001
 wait_for_swtpm swtpm_d002
 wait_for_swtpm swtpm_dsoc
 
+for service in swtpm_d001 swtpm_d002 swtpm_dsoc; do
+  docker compose --profile testing exec -T "${service}" \
+    bash -lc "tpm2_flushcontext -t 2>/dev/null || true; tpm2_flushcontext -s 2>/dev/null || true; tpm2_flushcontext -l 2>/dev/null || true" \
+    >/dev/null 2>&1 || true
+done
+
+log STEP "Rimozione dei client demo eventualmente gia' avviati"
+
+docker compose --profile testing rm -sf \
+  client_d001_tpm \
+  client_d002_tpm \
+  client_dsoc_tpm \
+  >/dev/null 2>&1 || true
+
 mkdir -p "$(dirname -- "${MANIFEST_FILE}")"
 
 printf 'user_id\tdevice_id\ttpm_handle\tnetwork\tcertificate\tspiffe_uri\tsha256_fingerprint\n' \
@@ -408,4 +422,3 @@ chmod 0644 "${MANIFEST_FILE}" 2>/dev/null || true
 log OK "Generate ${generated_count} identità utente-hardware TPM-backed"
 log INFO "Manifest: ${MANIFEST_FILE}"
 log INFO "Le chiavi private non sono state esportate dal TPM"
-log INFO "Gli handle legacy 0x81000001/02/03 non sono stati rimossi"

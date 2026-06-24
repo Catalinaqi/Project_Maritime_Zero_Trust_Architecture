@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
-
-# =============================================================================
-# PROVISIONING DI UNA IDENTITÀ UTENTE-HARDWARE NEL TPM
-# =============================================================================
-#
-# Lo script:
-# 1. crea o riutilizza una chiave privata distinta per la coppia USER_ID/DEVICE_ID;
-# 2. mantiene la chiave privata dentro il TPM;
-# 3. esporta solamente la chiave pubblica;
-# 4. genera una CSR usando il provider OpenSSL TPM2.
-#
-# La chiave privata della CA non viene mai montata nel container.
-# =============================================================================
-
+# Crea o riutilizza una chiave TPM persistente e genera la relativa CSR.
 set -Eeuo pipefail
 
 USER_ID="${USER_ID:?USER_ID non definito}"
@@ -27,10 +14,6 @@ TPM_WORK_DIR="/tpm/identities/${USER_ID}__${DEVICE_ID}"
 
 CSR_FILE="${IDENTITY_DIR}/identity.csr"
 PUBLIC_KEY_FILE="${IDENTITY_DIR}/identity_tpm_public.pem"
-
-PARENT_CONTEXT="${TPM_WORK_DIR}/parent.ctx"
-KEY_PUBLIC_BLOB="${TPM_WORK_DIR}/identity.pub"
-KEY_PRIVATE_BLOB="${TPM_WORK_DIR}/identity.priv"
 KEY_CONTEXT="${TPM_WORK_DIR}/identity.ctx"
 
 log() {
@@ -51,11 +34,9 @@ validate_identifier() {
 }
 
 cleanup_transient_contexts() {
-  # Elimina esclusivamente oggetti e sessioni temporanei.
-  # Gli handle persistenti non vengono rimossi.
-  tpm2_flushcontext --transient-object 2>/dev/null || true
-  tpm2_flushcontext --loaded-session 2>/dev/null || true
-  tpm2_flushcontext --saved-session 2>/dev/null || true
+  tpm2_flushcontext -t 2>/dev/null || true
+  tpm2_flushcontext -s 2>/dev/null || true
+  tpm2_flushcontext -l 2>/dev/null || true
 }
 
 persistent_handle_exists() {
@@ -88,45 +69,25 @@ if persistent_handle_exists; then
     tpm2_evictcontrol -C o -c "${TPM_HANDLE}"
     cleanup_transient_contexts
   else
-    log INFO "Handle già presente: la chiave viene riutilizzata"
+    log INFO "Handle gia' presente: la chiave viene riutilizzata"
   fi
 fi
 
 if ! persistent_handle_exists; then
-  log STEP "Creazione del parent primario TPM"
+  log STEP "Creazione della chiave primaria TPM non esportabile"
 
-  rm -f \
-    "${PARENT_CONTEXT}" \
-    "${KEY_PUBLIC_BLOB}" \
-    "${KEY_PRIVATE_BLOB}" \
-    "${KEY_CONTEXT}"
+  rm -f "${KEY_CONTEXT}"
 
-  # Il primary object è usato soltanto come parent temporaneo.
+  # La chiave primaria viene resa persistente direttamente. Questa sequenza
+  # evita di saturare gli object context dei TPM emulati piu' piccoli.
   tpm2_createprimary \
     -C o \
     -G rsa2048 \
     -g sha256 \
-    -c "${PARENT_CONTEXT}"
-
-  log STEP "Creazione della chiave di firma non esportabile"
-
-  # fixedtpm e fixedparent impediscono la migrazione della chiave.
-  # sensitivedataorigin impone che il materiale privato venga generato dal TPM.
-  tpm2_create \
-    -C "${PARENT_CONTEXT}" \
-    -G rsa2048 \
-    -g sha256 \
     -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|sign" \
-    -u "${KEY_PUBLIC_BLOB}" \
-    -r "${KEY_PRIVATE_BLOB}"
-
-  log STEP "Caricamento e persistenza della chiave su ${TPM_HANDLE}"
-
-  tpm2_load \
-    -C "${PARENT_CONTEXT}" \
-    -u "${KEY_PUBLIC_BLOB}" \
-    -r "${KEY_PRIVATE_BLOB}" \
     -c "${KEY_CONTEXT}"
+
+  log STEP "Persistenza della chiave su ${TPM_HANDLE}"
 
   tpm2_evictcontrol \
     -C o \
@@ -134,14 +95,7 @@ if ! persistent_handle_exists; then
     "${TPM_HANDLE}"
 
   cleanup_transient_contexts
-
-  # I blob TPM non sono chiavi private esportabili, ma vengono comunque
-  # rimossi dopo la persistenza per ridurre i file temporanei.
-  rm -f \
-    "${PARENT_CONTEXT}" \
-    "${KEY_PUBLIC_BLOB}" \
-    "${KEY_PRIVATE_BLOB}" \
-    "${KEY_CONTEXT}"
+  rm -f "${KEY_CONTEXT}"
 fi
 
 persistent_handle_exists || \

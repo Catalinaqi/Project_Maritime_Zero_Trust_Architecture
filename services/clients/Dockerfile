@@ -1,3 +1,4 @@
+# Costruisce il client generico usato per richieste e verifiche di rete.
 FROM alpine:3.19
 
 # Installazione delle dipendenze necessarie per scaricare i binari ed eseguire la shell

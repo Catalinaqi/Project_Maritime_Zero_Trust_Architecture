@@ -1,3 +1,4 @@
+# Policy di supporto usata per prove e confronto con la policy autorizzativa.
 package envoy.authz
 
 import rego.v1

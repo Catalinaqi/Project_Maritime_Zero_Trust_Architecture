@@ -14,9 +14,11 @@ services:
     networks:
       monitoring_net:
         ipv4_address: 172.20.4.8
+      zerotrust_net:
+        ipv4_address: 172.20.2.8
     ports:
-      - "127.0.0.1:${SPLUNK_WEB_PORT:-8000}:8000"
-      - "127.0.0.1:${SPLUNK_HEC_PORT:-8088}:8088"
+      - "${SPLUNK_WEB_PORT:-8000}:8000"
+      - "${SPLUNK_HEC_PORT:-8088}:8088"
     volumes:
       - splunk_data:/opt/splunk/var
       - splunk_etc:/opt/splunk/etc
@@ -147,11 +149,11 @@ services:
     volumes:
       - ./configs/opa/config.yaml:/config/opa-config.yaml:ro
       - ./configs/opa/policies/authorization.rego:/policies/authorization.rego:ro
-      - ./configs/opa/data/roles.json:/policies/roles.json:ro
-      - ./configs/opa/data/devices.json:/policies/devices.json:ro
-      - ./configs/opa/data/networks.json:/policies/networks.json:ro
-      - ./configs/opa/data/access_rules.json:/policies/access_rules.json:ro
-      - ./configs/opa/data/risk_data:/policies/risk_data
+      - ./configs/opa/data/roles.json:/policies/roles/roles.json:ro
+      - ./configs/opa/data/devices.json:/policies/devices/devices.json:ro
+      - ./configs/opa/data/networks.json:/policies/networks/networks.json:ro
+      - ./configs/opa/data/access_rules.json:/policies/access_rules/access_rules.json:ro
+      - ./configs/opa/data/risk_data:/policies/risk_data/risk_scores
     environment:
       SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN}
     command:
@@ -193,16 +195,12 @@ services:
         ipv4_address: 172.20.4.10
       corporate_net:
         ipv4_address: 172.20.10.10
-        aliases: [pep_gateway]
       vpn_net:
         ipv4_address: 172.20.11.10
-        aliases: [pep_gateway]
       satellite_net:
         ipv4_address: 172.20.12.10
-        aliases: [pep_gateway]
       public_net:
         ipv4_address: 172.20.13.10
-        aliases: [pep_gateway]
     cap_add: [NET_ADMIN]
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -243,9 +241,21 @@ services:
         ipv4_address: 172.20.2.7
       backend_net:
         ipv4_address: 172.20.3.7
+      corporate_net:
+        ipv4_address: 172.20.10.7
+        aliases: [pep_gateway]
+      vpn_net:
+        ipv4_address: 172.20.11.7
+        aliases: [pep_gateway]
+      satellite_net:
+        ipv4_address: 172.20.12.7
+        aliases: [pep_gateway]
+      public_net:
+        ipv4_address: 172.20.13.7
+        aliases: [pep_gateway]
     volumes:
       - ./configs/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
-      - ./configs/envoy/mongo_inspector.lua:/etc/envoy/mongo_inspector.lua:ro
+      - ./configs/envoy/mongo_inspector_active.lua:/etc/envoy/mongo_inspector.lua:ro
       - ./certs/server:/certs:ro
       - ./certs/ca/ca.crt:/ca/ca.crt:ro
       - envoy_logs:/var/log/envoy
@@ -373,11 +383,12 @@ services:
       ENVOY_PORT: 8443
       USER_ID: operatore_ancona
       DEVICE_ID: D-001
-      CLIENT_CERT: /certs/device/device.crt
+      CLIENT_CERT: /certs/device/identities/operatore_ancona/identity.crt
       CA_CERT: /ca/ca.crt
       TPM_HANDLE: "0x81000001"
-      TPM2TOOLS_TCTI: swtpm:host=swtpm_d001,port=2321
-      TPM2OPENSSL_TCTI: swtpm:host=swtpm_d001,port=2321
+      SWTPM_HOST: swtpm_d001
+      TPM2TOOLS_TCTI: tabrmd:bus_type=system
+      TPM2OPENSSL_TCTI: tabrmd:bus_type=system
       OPENSSL_MODULES: /usr/local/lib/ossl-modules
     command: ["tail", "-f", "/dev/null"]
     depends_on:
@@ -402,11 +413,12 @@ services:
       ENVOY_PORT: 8443
       USER_ID: capitano_claudia
       DEVICE_ID: D-002
-      CLIENT_CERT: /certs/device/device.crt
+      CLIENT_CERT: /certs/device/identities/capitano_claudia/identity.crt
       CA_CERT: /ca/ca.crt
       TPM_HANDLE: "0x81000002"
-      TPM2TOOLS_TCTI: swtpm:host=swtpm_d002,port=2321
-      TPM2OPENSSL_TCTI: swtpm:host=swtpm_d002,port=2321
+      SWTPM_HOST: swtpm_d002
+      TPM2TOOLS_TCTI: tabrmd:bus_type=system
+      TPM2OPENSSL_TCTI: tabrmd:bus_type=system
       OPENSSL_MODULES: /usr/local/lib/ossl-modules
     depends_on:
       swtpm_d002:
@@ -428,11 +440,12 @@ services:
       ENVOY_PORT: 8443
       USER_ID: soc_admin
       DEVICE_ID: D-SOC
-      CLIENT_CERT: /certs/device/device.crt
+      CLIENT_CERT: /certs/device/identities/soc_admin/identity.crt
       CA_CERT: /ca/ca.crt
       TPM_HANDLE: "0x81000003"
-      TPM2TOOLS_TCTI: swtpm:host=swtpm_dsoc,port=2321
-      TPM2OPENSSL_TCTI: swtpm:host=swtpm_dsoc,port=2321
+      SWTPM_HOST: swtpm_dsoc
+      TPM2TOOLS_TCTI: tabrmd:bus_type=system
+      TPM2OPENSSL_TCTI: tabrmd:bus_type=system
       OPENSSL_MODULES: /usr/local/lib/ossl-modules
     depends_on:
       swtpm_dsoc:

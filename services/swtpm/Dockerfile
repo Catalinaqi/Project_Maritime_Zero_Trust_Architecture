@@ -1,3 +1,4 @@
+# Costruisce l'immagine dell'emulatore SWTPM usato dai dispositivi di test.
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive

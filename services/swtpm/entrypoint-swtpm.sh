@@ -1,4 +1,5 @@
 #!/bin/bash
+# Avvia un emulatore TPM 2.0 persistente esposto sulle porte TCP configurate.
 set -euo pipefail
 
 TPM_STATE_DIR="${TPM_STATE_DIR:-/var/lib/swtpm}"

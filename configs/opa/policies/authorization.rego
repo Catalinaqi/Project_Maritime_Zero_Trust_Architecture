@@ -1,3 +1,4 @@
+# Applica la policy ABAC Zero Trust usando identita, rete, risorsa e rischio.
 package envoy.authz
 
 import rego.v1
@@ -38,8 +39,6 @@ source_ip := object.get(
     "0.0.0.0",
 )
 
-# Restituisce il nome della rete corrispondente all'IP sorgente.
-# Se nessun CIDR corrisponde, la variabile rimane indefinita.
 current_network := network_name if {
     some network_name
     cidr := data.networks[network_name].cidrs[_]
@@ -53,7 +52,6 @@ current_network := network_name if {
 user_exists       if data.roles[user_id]
 device_exists     if data.devices[device_id]
 device_trusted    if device_profile.trusted == true
-# network_known è vero se e solo se current_network è stata assegnata.
 network_known     if current_network
 
 access_rule_exists if {
@@ -67,25 +65,17 @@ access_rule_exists if {
 # Verifica sulla risorsa e sul comando
 # ---------------------------------------------------------------------------
 
-# Wildcard: l'utente può accedere a qualsiasi collezione.
 resource_allowed if user_profile.allowed_resources[_] == "*"
-# Corrispondenza esatta sulla collezione richiesta.
 resource_allowed if user_profile.allowed_resources[_] == req_collection
 
 command_allowed if user_profile.allowed_commands[_] == req_command
-
-# L'endpoint /all mappa sulla collezione "all"; viene controllato come le altre.
-# L'accesso è consentito solo se l'utente ha wildcard "*" sulle risorse.
 
 # ---------------------------------------------------------------------------
 # Verifica sulla specifica risorsa (resource_id)
 # ---------------------------------------------------------------------------
 
-# Nessuna restrizione su resource_id se non è stato specificato.
 specific_resource_allowed if req_resource_id == "unknown"
-# Nessuna restrizione su resource_id per le collezioni diverse da "risorse".
 specific_resource_allowed if req_collection != "risorse"
-# Verifica la regola specifica della risorsa nella collezione "risorse".
 specific_resource_allowed if {
     req_collection == "risorse"
     req_resource_id != "unknown"
@@ -98,7 +88,6 @@ specific_resource_allowed if {
 # Finestra temporale (fuso Europe/Rome)
 # ---------------------------------------------------------------------------
 
-# Converte una stringa HH:MM nel numero di minuti dall'inizio del giorno.
 time_to_minutes(value) := result if {
     regex.match("^[0-2][0-9]:[0-5][0-9]$", value)
     hours   := to_number(substring(value, 0, 2))
@@ -112,14 +101,12 @@ current_minutes := clock[0] * 60 + clock[1]
 window_start    := time_to_minutes(user_profile.time_window_start)
 window_end      := time_to_minutes(user_profile.time_window_end)
 
-# Intervallo ordinario (es. 08:00-18:00): inizio < fine.
 time_allowed if {
     window_start <= window_end
     current_minutes >= window_start
     current_minutes <= window_end
 }
 
-# Intervallo che attraversa la mezzanotte (es. 22:00-06:00): inizio > fine.
 time_allowed if {
     window_start > window_end
     current_minutes >= window_start
@@ -160,7 +147,7 @@ allow if {
 }
 
 # ---------------------------------------------------------------------------
-# Motivazioni del diniego (incluse nei decision log)
+# Motivazioni del diniego
 # ---------------------------------------------------------------------------
 
 denial_reasons contains "unknown_user"    if not user_exists
@@ -189,7 +176,6 @@ reason_list := sort([reason | denial_reasons[reason]])
 # Risposta al plugin OPA-Envoy
 # ---------------------------------------------------------------------------
 
-# Caso positivo: OPA autorizza la richiesta e aggiunge gli header ZTA al backend.
 decision := {
     "allowed": true,
     "headers": {
@@ -201,7 +187,6 @@ decision := {
     "dynamic_metadata": {"reason_codes": []},
 } if allow
 
-# Caso negativo: OPA nega la richiesta con HTTP 403 e i codici di diniego.
 decision := {
     "allowed":     false,
     "http_status": 403,

@@ -1,3 +1,4 @@
+-- Versione storica del filtro Lua precedente alla correzione delle identita.
 function envoy_on_request(request_handle)
     -- Recupera il path della richiesta, ad esempio:
     -- "/risorse"

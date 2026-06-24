@@ -1,3 +1,4 @@
+# Configura listener mTLS, filtro Lua, autorizzazione OPA e backend API di Envoy.
 admin:
   address:
     socket_address:

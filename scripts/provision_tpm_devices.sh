@@ -30,9 +30,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-command -v docker >/dev/null 2>&1 || fail "Docker non è disponibile."
-docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 non è disponibile."
-command -v openssl >/dev/null 2>&1 || fail "OpenSSL non è disponibile."
+command -v docker >/dev/null 2>&1 || fail "Docker non e disponibile."
+docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 non e disponibile."
+command -v openssl >/dev/null 2>&1 || fail "OpenSSL non e disponibile."
 
 [[ -r certs/ca/ca.crt && -r certs/ca/ca.key ]] || \
   fail "CA assente. Eseguire prima: bash scripts/generate_certs.sh"
@@ -57,7 +57,7 @@ for service in swtpm_d001 swtpm_d002 swtpm_dsoc; do
 
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${service}" 2>/dev/null || true)"
   [[ "${status}" == "healthy" || "${status}" == "running" ]] || \
-    fail "Il servizio ${service} non è pronto. Stato rilevato: ${status:-sconosciuto}."
+    fail "Il servizio ${service} non e pronto. Stato rilevato: ${status:-sconosciuto}."
 done
 
 # Firma la CSR prodotta dal TPM senza mai esportare la chiave privata.
@@ -74,13 +74,15 @@ provision_device() {
   printf '[INFO] Generazione CSR TPM per user=%s device=%s...\n' \
     "${user_id}" "${device_id}"
 
+  docker compose --profile testing rm -sf "${client_service}" >/dev/null 2>&1 || true
+
   docker compose --profile testing run --rm --no-deps \
     "${client_service}" \
     /scripts/generate_device_csr.sh
 
   [[ -r "${csr_file}" ]] || fail "CSR non generata: ${csr_file}"
 
-  # Il SAN URI lega in modo esplicito l'identità dell'utente al dispositivo.
+  # Il SAN URI lega in modo esplicito l'identita dell'utente al dispositivo.
   cat > "${config_file}" <<EOF_CONFIG
 [v3_client]
 basicConstraints = critical,CA:FALSE

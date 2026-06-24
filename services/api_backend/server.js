@@ -1,5 +1,6 @@
 "use strict";
 
+// Espone l'API REST autorizzata da Envoy e legge i dati operativi da MongoDB.
 const express = require("express");
 const { MongoClient } = require("mongodb");
 

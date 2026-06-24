@@ -1,3 +1,4 @@
+# Versione storica della policy precedente alla correzione delle identita.
 package envoy.authz
 
 import rego.v1

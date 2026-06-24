@@ -1,3 +1,4 @@
+# Configurazione alternativa completa del container Splunk Enterprise.
 splunk:
   start_args: "--accept-license"
   password: "${SPLUNK_PASSWORD}"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Genera la CA e i certificati infrastrutturali per Envoy e MongoDB.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

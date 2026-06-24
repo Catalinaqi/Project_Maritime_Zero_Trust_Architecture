@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Verifica prerequisiti, certificati e validita della configurazione Compose.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,7 +29,7 @@ check_file certs/server/server.key
 check_file certs/mongodb/mongodb-server.pem
 check_file certs/mongodb/api-client.pem
 check_file certs/mongodb/healthcheck-client.pem
-check_file configs/envoy/mongo_inspector.lua
+check_file configs/envoy/mongo_inspector_active.lua
 check_file configs/opa/policies/authorization.rego
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then

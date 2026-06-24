@@ -47,9 +47,9 @@ fi
 
 # Rimuove soltanto oggetti e sessioni temporanei.
 # Gli handle persistenti del dispositivo non vengono eliminati.
-TPM2TOOLS_TCTI="${DIRECT_TCTI}" tpm2_flushcontext --transient-object 2>/dev/null || true
-TPM2TOOLS_TCTI="${DIRECT_TCTI}" tpm2_flushcontext --loaded-session 2>/dev/null || true
-TPM2TOOLS_TCTI="${DIRECT_TCTI}" tpm2_flushcontext --saved-session 2>/dev/null || true
+TPM2TOOLS_TCTI="${DIRECT_TCTI}" tpm2_flushcontext -t 2>/dev/null || true
+TPM2TOOLS_TCTI="${DIRECT_TCTI}" tpm2_flushcontext -s 2>/dev/null || true
+TPM2TOOLS_TCTI="${DIRECT_TCTI}" tpm2_flushcontext -l 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Preparazione sicura del machine-id.

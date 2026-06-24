@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Configura il firewall perimetrale NFTables, il routing e l'invio eventi HEC.
 set -Eeuo pipefail
 
 # =============================================================================

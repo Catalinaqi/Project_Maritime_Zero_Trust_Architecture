@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arresta lo stack e rimuove i dati runtime Docker dell'ambiente di test.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

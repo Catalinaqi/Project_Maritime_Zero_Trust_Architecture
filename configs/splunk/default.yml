@@ -1,3 +1,4 @@
+# Configura l'avvio di Splunk e abilita il collector HEC senza TLS interno.
 splunk:
   start_args: "--accept-license"
   home_ownership_enforcement: false
