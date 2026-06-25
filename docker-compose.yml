@@ -218,7 +218,7 @@ services:
       NFTABLES_SATELLITE_NET: ${NETWORK_SATELLITE_SUBNET:-172.20.12.0/24}
       NFTABLES_PUBLIC_NET: ${NETWORK_PUBLIC_SUBNET:-172.20.13.0/24}
       NFTABLES_PEP_PORT: ${ENVOY_LISTENER_PORT:-8443}
-      NFTABLES_SPLUNK_HEC_URL: http://siem_central:8088/services/collector/event
+      NFTABLES_SPLUNK_HEC_URL: http://172.20.4.8:8088/services/collector/event
       NFTABLES_SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN}
     healthcheck:
       test: ["CMD-SHELL", "nft list table ip filter >/dev/null 2>&1"]
