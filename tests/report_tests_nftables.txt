@@ -1,0 +1,17 @@
+=======================================================================
+ MARITIME ZTA - RAPPORTO TEST FIREWALL NFTABLES
+ Ora di inizio: 2026-06-26 16:14:57
+=======================================================================
+[PASS] VPN -> Envoy via FW (8443) → INOLTRO RILEVATO (Counter FORWARD incrementato: 1278 -> 1281). Asimmetria superata.
+[PASS] Satellite -> Envoy via FW (8443) → INOLTRO RILEVATO (Counter FORWARD incrementato: 1281 -> 1284). Asimmetria superata.
+[PASS] Corporate -> Envoy via FW (8443) → INOLTRO RILEVATO (Counter FORWARD incrementato: 1284 -> 1287). Asimmetria superata.
+[PASS] VPN -> Firewall:27017 (Mongo) → timeout (atteso deny)
+[PASS] VPN -> Firewall:3000 (API) → timeout (atteso deny)
+[PASS] VPN -> Firewall:8181 (OPA) → timeout (atteso deny)
+[PASS] VPN -> Firewall:8000 (Splunk Web) → timeout (atteso deny)
+[PASS] Log NFTables: trovate 8 righe con '[NFT-INPUT-DROP]'
+[PASS] VPN -> Satellite (cliente a cliente) → timeout (atteso deny)
+[PASS] Satellite -> VPN (cliente a cliente) → timeout (atteso deny)
+[PASS] VPN -> Satellite porta 22 (ssh) → timeout (atteso deny)
+[PASS] Ping VPN -> Firewall (VPN_IP) permesso
+[PASS] Loopback (127.0.0.1) funzionante e valutato correttamente dal kernel
