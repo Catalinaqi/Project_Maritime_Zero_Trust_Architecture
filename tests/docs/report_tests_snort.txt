@@ -1,0 +1,38 @@
+=======================================================================
+ MARITIME ZTA - RAPPORTO GLOBALE AUDIT DI SICUREZZA (REGOLE AGGIORNATE)
+ Ora di inizio esecuzione: 2026-06-26 15:35:52
+=======================================================================
+[15:35:56] Servizio: client_d001_tpm | Descrizione: Ping verso firewall da VPN (possibile falso positivo) | SIDs attesi: 999901
+[15:36:01] Servizio: client_d001_tpm | Descrizione: Test SQLi (in chiaro) sulla porta PEP | SIDs attesi: 999903
+[15:36:05] Servizio: client_d002_tpm | Descrizione: SYN diretto a MongoDB | SIDs attesi: 999904
+[15:36:09] Servizio: client_d001_tpm | Descrizione: Scansione porte TCP (20 SYN in 60s) | SIDs attesi: 1000001
+[15:36:12] Servizio: client_d001_tpm | Descrizione: Scansione porte UDP (20 pacchetti in 60s) | SIDs attesi: 1000002
+[15:36:14] Servizio: client_d001_tpm | Descrizione: Scansione NULL (Flag 0) usando nmap | SIDs attesi: 1000003
+[15:36:17] Servizio: client_d001_tpm | Descrizione: SYN Flood (110 SYN rapidi verso PEP) | SIDs attesi: 1000004
+[15:36:53] Servizio: client_d001_tpm | Descrizione: Slowloris simulato (50 connessioni stabilite) | SIDs attesi: 1000005
+[15:36:58] Servizio: client_d001_tpm | Descrizione: Tentativo di connessione diretta a MongoDB | SIDs attesi: 1000006
+[15:37:02] Servizio: client_d002_tpm | Descrizione: Tentativo diretto ad API Backend | SIDs attesi: 1000007
+[15:37:07] Servizio: client_dsoc_tpm | Descrizione: Tentativo diretto a OPA (REST) | SIDs attesi: 1000008
+[15:37:12] Servizio: client_d001_tpm | Descrizione: Tentativo alla porta admin di Envoy | SIDs attesi: 1000009
+[15:37:24] Servizio: client_dsoc_tpm | Descrizione: Tentativo diretto a Splunk (10 connessioni) | SIDs attesi: 1000010
+[15:37:29] Servizio: client_d001_tpm | Descrizione: HTTP GET in chiaro su porta mTLS | SIDs attesi: 1000011
+[15:37:34] Servizio: client_d002_tpm | Descrizione: HTTP POST in chiaro su porta mTLS | SIDs attesi: 1000012
+[15:37:39] Servizio: client_d001_tpm | Descrizione: Downgrade TLS 1.0 verso Envoy | SIDs attesi: 1000016
+[15:37:43] Servizio: client_d001_tpm | Descrizione: Downgrade TLS 1.1 verso Envoy | SIDs attesi: 1000017
+[15:37:48] Servizio: client_d002_tpm | Descrizione: Heartbeat TLS (simulato con curl?) | SIDs attesi: 1000014
+[15:37:53] Servizio: client_d001_tpm | Descrizione: SQLi UNION SELECT (in chiaro) | SIDs attesi: 1000015
+[15:37:57] Servizio: client_d001_tpm | Descrizione: DROP TABLE in query string | SIDs attesi: 1000018
+[15:38:02] Servizio: client_d002_tpm | Descrizione: Command Injection: cat /etc/passwd | SIDs attesi: 1000019
+[15:38:05] Servizio: client_d001_tpm | Descrizione: Invio opcode MongoDB verso IP esterna | SIDs attesi: 1000020
+[15:38:16] Servizio: client_d001_tpm | Descrizione: 500 connessioni verso esterno (alto volume) | SIDs attesi: 1000021
+[15:38:20] Servizio: client_d001_tpm | Descrizione: Da VPN_NET verso BACKEND_NET | SIDs attesi: 1000028
+[15:38:25] Servizio: client_d002_tpm | Descrizione: Da SATELLITE_NET verso BACKEND_NET | SIDs attesi: 1000027
+[15:38:30] Servizio: client_dsoc_tpm | Descrizione: Da CORPORATE_NET verso BACKEND_NET (simulato) | SIDs attesi: N/A
+[15:38:34] Servizio: client_d002_tpm | Descrizione: Da SATELLITE_NET verso CORPORATE_NET | SIDs attesi: 1000026
+[15:38:43] Servizio: client_d001_tpm | Descrizione: Brute force SSH (6 connessioni in 60s) | SIDs attesi: 1000029
+[15:38:58] Servizio: client_dsoc_tpm | Descrizione: Brute force Splunk (12 connessioni) | SIDs attesi: 1000030
+[15:39:20] Servizio: client_d001_tpm | Descrizione: Brute force OPA (20 connessioni) | SIDs attesi: 1000031
+[15:39:25] Servizio: client_d001_tpm | Descrizione: PUT v1/policies a OPA (tamper) | SIDs attesi: 1000032|1000008
+[15:39:30] Servizio: client_d002_tpm | Descrizione: PUT v1/data a OPA | SIDs attesi: 1000033|1000008
+[15:39:34] Servizio: client_dsoc_tpm | Descrizione: DELETE a OPA | SIDs attesi: 1000034|1000008
+[15:39:45] Servizio: client_dsoc_tpm | Descrizione: Log flooding verso Splunk HEC (220 richieste) | SIDs attesi: 1000035

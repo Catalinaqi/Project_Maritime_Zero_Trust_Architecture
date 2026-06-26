@@ -1,68 +1,112 @@
 #!/bin/bash
 # =============================================================================
-# MARITIME ZTA - AUDIT COMPLETO DE TODAS LAS CATEGORÍAS SNORT
-# Archivo: run_audit_snort.sh
+# MARITIME ZTA - AUDIT COMPLETO DI TUTTE LE CATEGORIE SNORT
+# File: run_audit_snort.sh
 # =============================================================================
 export MSYS_NO_PATHCONV=1
 
-source ./config_audit_snort.sh
+source ./config_audit.sh
 
-echo "=======================================================================" > "$REPORT_FILE"
-echo " MARITIME ZTA - RAPPORTO GLOBALE AUDIT DI SICUREZZA (REGOLE AGGIORNATE)" >> "$REPORT_FILE"
-echo " Ora di inizio esecuzione: $(date '+%Y-%m-%d %H:%M:%S')" >> "$REPORT_FILE"
-echo "=======================================================================" >> "$REPORT_FILE"
+echo "=======================================================================" > "$REPORT_FILE_SNORT"
+echo " MARITIME ZTA - RAPPORTO GLOBALE AUDIT DI SICUREZZA (REGOLE AGGIORNATE)" >> "$REPORT_FILE_SNORT"
+echo " Ora di inizio esecuzione: $(date '+%Y-%m-%d %H:%M:%S')" >> "$REPORT_FILE_SNORT"
+echo "=======================================================================" >> "$REPORT_FILE_SNORT"
 
-# Funciones auxiliares
+# Funzioni ausiliarie
 header() {
     echo -e "\n${BLUE}════════════════════════════════════════════════════════════${NC}"
     echo -e "${BLUE} $1${NC}"
     echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 }
 
-fire_attack() {
+log_ok() { echo -e "${GREEN}[PASS]${NC} $1"; echo "[PASS] $1" >> "$REPORT_FILE_SNORT"; }
+log_fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "[FAIL] $1" >> "$REPORT_FILE_SNORT"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; echo "[WARN] $1" >> "$REPORT_FILE_SNORT"; }
+log_info() { echo -e "${CYAN}[INFO]${NC} $1"; echo "[INFO] $1" >> "$REPORT_FILE_SNORT"; }
+
+# =============================================================================
+# VERIFICA LOG SNORT (alert_json.txt)
+# =============================================================================
+check_snort_alert() {
+    local expected_sid="$1"
+    local min_alerts="${2:-1}"
+    local max_wait="${3:-10}"
+    local alert_file="${4:-$SNORT_ALERT_FILE}"
+    local sid_count=0
+
+    for ((i=0; i<max_wait; i++)); do
+        sid_count=$(docker exec "$FW_CONTAINER" sh -c \
+            "grep -c \"\"sid\": $expected_sid\" \"$alert_file\" 2>/dev/null || echo 0" 2>/dev/null || echo 0)
+        sid_count="${sid_count:-0}"
+        if [[ $sid_count -ge $min_alerts ]]; then
+            log_ok "Snort alert SID $expected_sid: rilevato $sid_count volte (threshold $min_alerts)"
+            return 0
+        fi
+        sleep 1
+    done
+
+    log_fail "Snort alert SID $expected_sid: solo $sid_count rilevamenti (attesi $min_alerts) dopo ${max_wait}s"
+    echo -e "${RED}[DEBUG]${NC} Ultime 5 righe di $alert_file:"
+    docker exec "$FW_CONTAINER" tail -n 5 "$alert_file" 2>/dev/null || echo "(file non accessibile o vuoto)"
+    return 1
+}
+
+# =============================================================================
+# FUNZIONE DI ATTACCO CON VERIFICA SNORT
+# =============================================================================
+fire_attack_and_check() {
     local container="$1"
     local desc="$2"
     local cmd="$3"
     local expected_sids="$4"
     local delay="${5:-2}"
+    local min_alerts="${6:-1}"
 
-    echo -e "${CYAN}[ATTACK] Esecuzione su container '${container}':${NC} ${desc}"
+    echo -e "${CYAN}[ATTACK]${NC} $desc"
     echo -e " Comando: ${cmd}"
 
     docker exec -t "$container" bash -c "$cmd" > /dev/null 2>&1
 
     sleep "$delay"
-    echo -e "${GREEN}[INFO] Attacco completato. SIDs attesi da Snort: ${expected_sids}${NC}"
-    echo "[$(date '+%H:%M:%S')] Servizio: $container | Descrizione: $desc | SIDs attesi: $expected_sids" >> "$REPORT_FILE"
+
+    local IFS='|'
+    for sid in $expected_sids; do
+        check_snort_alert "$sid" "$min_alerts" 10
+    done
+}
+
+# Per compatibilità, creiamo un alias per le chiamate esistenti
+fire_attack() {
+    fire_attack_and_check "$@"
 }
 
 # =============================================================================
-# CATEGORIA 0 - DIAGNÓSTICA DE LA PIPELINE IDS (SIDs 999901-999904)
+# CATEGORIA 0 - DIAGNOSTICA DELLA PIPELINE IDS (SIDs 999901-999904)
 # =============================================================================
-header "CATEGORIA 0 - DIAGNÓSTICA DELLA PIPELINE IDS"
+header "CATEGORIA 0 - DIAGNOSTICA DELLA PIPELINE IDS"
 
-# Para que Snort vea ICMP desde EXTERNAL_NET, simulamos un ping desde un contenedor
-# que no pertenezca a HOME_NET. Usamos el host (si está en 172.20.13.0/24) o
-# un contenedor especial. Por simplicidad, hacemos ping desde el cliente d001
-# pero modificamos la IP origen? No es posible. Mejor usamos la IP del firewall
-# en la red public_net (172.20.13.10) si existe. En caso contrario, probamos con
-# la IP del TARGET_VPN_IP (que ya está en HOME_NET). La regla espera EXTERNAL_NET,
-# así que probablemente no se active. Para fines demostrativos, incluimos el ataque
-# para ver que Snort ejecuta la regla aunque no coincida el origen.
-fire_attack "client_d001_tpm" "Ping hacia firewall desde VPN (posible falso positivo)" \
+# Per far sì che Snort veda ICMP da EXTERNAL_NET, simuliamo un ping da un contenitore
+# che non appartenga a HOME_NET. Usiamo l'host (se è in 172.20.13.0/24) o
+# un contenitore speciale. Per semplicità, eseguiamo il ping dal client d001
+# ma modifichiamo l'IP sorgente? Non è possibile. Meglio usare l'IP del firewall
+# sulla rete public_net (172.20.13.10) se esiste. Altrimenti, proviamo con
+# l'IP di TARGET_VPN_IP (che è già in HOME_NET). La regola si aspetta EXTERNAL_NET,
+# quindi probabilmente non si attiverà. A scopo dimostrativo, includiamo l'attacco
+# per vedere che Snort esegue la regola anche se l'origine non corrisponde.
+fire_attack "client_d001_tpm" "Ping verso firewall da VPN (possibile falso positivo)" \
     "ping -c 2 ${TARGET_VPN_IP}" \
     "999901"
 
-# TCP SYN desde EXTERNAL NET: usamos un cliente y forzamos IP origen? No.
-# Omitimos porque es complicado simular EXTERNAL_NET real. Se puede saltar.
+# TCP SYN da EXTERNAL NET: usiamo un client e forziamo IP origine? No.
+# Omissione perché è complicato simulare una EXTERNAL_NET reale. Si può saltare.
 
-# Para MVP-003 (SQLi en claro) usaremos curl GET con "union select" en la URL.
-fire_attack "client_d001_tpm" "SQLi test (claro) en puerto PEP" \
+# Per MVP-003 (SQLi in chiaro) useremo curl GET con "union select" nell'URL.
+fire_attack "client_d001_tpm" "Test SQLi (in chiaro) sulla porta PEP" \
     "curl -s --max-time 2 'http://${TARGET_VPN_IP}:${PORT_PEP}/?q=union%20select'" \
     "999903"
 
-# MVP-004: SYN a MongoDB
-fire_attack "client_d002_tpm" "SYN directo a MongoDB" \
+# MVP-004: SYN verso MongoDB
+fire_attack "client_d002_tpm" "SYN diretto a MongoDB" \
     "timeout 2 bash -c 'echo > /dev/tcp/${TARGET_VPN_IP}/${PORT_MONGO}'" \
     "999904"
 
@@ -139,7 +183,7 @@ fire_attack "client_d001_tpm" "Downgrade TLS 1.1 verso Envoy" \
 
 fire_attack "client_d002_tpm" "Heartbeat TLS (simulato con curl?)" \
     "curl -s --max-time 2 --tls-max 1.2 https://${TARGET_SATELLITE_IP}:${PORT_PEP}/ 2>/dev/null; true" \
-    "1000014"   # Nota: el heartbeat se detecta por contenido |18 03|, pero curl no lo envía. Solo prueba de concepto.
+    "1000014"   # Nota: l'heartbeat viene rilevato dal contenuto |18 03|, ma curl non lo invia. Solo prova di concetto.
 
 # =============================================================================
 # CATEGORIA 4 - INJECTION APPLICATIVE (SIDs 1000015, 1000018, 1000019)
@@ -159,27 +203,27 @@ fire_attack "client_d002_tpm" "Command Injection: cat /etc/passwd" \
     "1000019"
 
 # =============================================================================
-# CATEGORIA 5 - POSIBILE ESFILTRAZIONE (SIDs 1000020, 1000021)
+# CATEGORIA 5 - POSSIBILE ESFILTRAZIONE (SIDs 1000020, 1000021)
 # =============================================================================
 header "CATEGORIA 5 - POSSIBILE ESFILTRAZIONE"
 
-# Para 1000020 (opcode MongoDB) necesitamos enviar bytes |d4 07 00 00|.
-# Usamos printf y nc (suponiendo que nc soporta entrada binaria).
+# Per 1000020 (opcode MongoDB) dobbiamo inviare byte |d4 07 00 00|.
+# Usiamo printf e nc (supponendo che nc supporti input binario).
 fire_attack "client_d001_tpm" "Invio opcode MongoDB verso IP esterna" \
     "printf '\xd4\x07\x00\x00' | timeout 2 nc -w1 ${TARGET_VPN_IP} ${PORT_MONGO} 2>/dev/null; true" \
     "1000020"
 
-fire_attack "client_d001_tpm" "500 connessioni verso esterno (alta volume)" \
+fire_attack "client_d001_tpm" "500 connessioni verso esterno (alto volume)" \
     "for i in \$(seq 1 520); do timeout 0.5 bash -c \"echo > /dev/tcp/8.8.8.8/53\" 2>/dev/null & done; wait" \
     "1000021" 10
 
 # =============================================================================
-# CATEGORIA 6 - MOVIMIENTO LATERALE (SIDs 1000022-1000028)
+# CATEGORIA 6 - MOVIMENTO LATERALE (SIDs 1000022-1000028)
 # =============================================================================
 header "CATEGORIA 6 - MOVIMENTO LATERALE TRA RETI"
 
-# Nota: las reglas esperan tráfico desde una red específica hacia otra.
-# Los clientes deben estar en la red origen correcta.
+# Nota: le regole si aspettano traffico da una rete specifica verso un'altra.
+# I client devono essere nella rete di origine corretta.
 
 fire_attack "client_d001_tpm" "Da VPN_NET verso BACKEND_NET" \
     "timeout 2 bash -c 'echo > /dev/tcp/172.20.3.10/3000' 2>/dev/null; true" \
@@ -191,10 +235,10 @@ fire_attack "client_d002_tpm" "Da SATELLITE_NET verso BACKEND_NET" \
 
 fire_attack "client_dsoc_tpm" "Da CORPORATE_NET verso BACKEND_NET (simulato)" \
     "timeout 2 bash -c 'echo > /dev/tcp/172.20.3.10/3000' 2>/dev/null; true" \
-    "N/A"   # No hay regla explícita para CORPORATE->BACKEND en el archivo, solo PUBLIC->BACKEND. Omitimos.
+    "N/A"   # Non esiste una regola esplicita per CORPORATE->BACKEND nel file, solo PUBLIC->BACKEND. Omissione.
 
-# Las reglas 1000022-1000025 requieren desde PUBLIC_NET. No tenemos cliente en public_net.
-# Las reglas 1000026 requiere SATELLITE->CORPORATE, ya tenemos client_d002 en satellite.
+# Le regole 1000022-1000025 richiedono da PUBLIC_NET. Non abbiamo client in public_net.
+# La regola 1000026 richiede SATELLITE->CORPORATE, abbiamo client_d002 in satellite.
 fire_attack "client_d002_tpm" "Da SATELLITE_NET verso CORPORATE_NET" \
     "timeout 2 bash -c 'echo > /dev/tcp/172.20.10.10/8000' 2>/dev/null; true" \
     "1000026"
@@ -241,5 +285,5 @@ fire_attack "client_dsoc_tpm" "Log flooding verso Splunk HEC (220 richieste)" \
 header "CONSOLIDAMENTO DELL'AUDIT DI SICUREZZA"
 echo -e "\n${GREEN}════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN} TUTTI I TEST (TUTTE LE CATEGORIE) SONO STATI LANCIATI   ${NC}"
-echo -e "${GREEN} Consultare il file '$REPORT_FILE' per il riepilogo.     ${NC}"
+echo -e "${GREEN} Consultare il file '$REPORT_FILE_SNORT' per il riepilogo.     ${NC}"
 echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
