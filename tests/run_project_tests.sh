@@ -18,10 +18,10 @@ run_suite() {
   fi
 }
 
-run_suite "scripts/test_access_success.sh"
-run_suite "scripts/test_access_denied.sh"
-run_suite "scripts/test_mtls_failures.sh"
-run_suite "scripts/test_dynamic_risk_score.sh"
+run_suite "tests/test_access_success.sh"
+run_suite "tests/test_access_denied.sh"
+run_suite "tests/test_mtls_failures.sh"
+run_suite "tests/test_dynamic_risk_score.sh"
 
 if [ "$failed" -ne 0 ]; then
   printf '\n[ERRORE] Uno o piu test sono falliti.\n'

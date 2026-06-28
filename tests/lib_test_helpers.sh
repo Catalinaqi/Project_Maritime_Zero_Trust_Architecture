@@ -103,6 +103,54 @@ wait_for_splunk_hec() {
   return 1
 }
 
+wait_for_splunk_search_api() {
+  local password
+  password="$(read_env_value SPLUNK_PASSWORD)"
+
+  printf '[INFO] Attendo Splunk Search API'
+  for _ in $(seq 1 90); do
+    if compose exec -T \
+      -e SPLUNK_TEST_PASSWORD="$password" \
+      siem_central sh -lc \
+      'curl -kfsS -u "admin:${SPLUNK_TEST_PASSWORD}" "https://localhost:8089/services/server/info?output_mode=json"' \
+      >/dev/null 2>&1; then
+      printf '\n'
+      return 0
+    fi
+    printf '.'
+    sleep 2
+  done
+
+  printf '\n'
+  record_fail "Splunk Search API non raggiungibile"
+  return 1
+}
+
+run_splunk_search_json() {
+  local query="$1"
+  local password encoded_query
+  password="$(read_env_value SPLUNK_PASSWORD)"
+  encoded_query="$(printf '%s' "$query" | base64 | tr -d '\r\n')"
+
+  compose exec -T \
+    -e SPLUNK_TEST_PASSWORD="$password" \
+    -e SPLUNK_TEST_QUERY_B64="$encoded_query" \
+    siem_central sh -lc '
+      SPLUNK_TEST_QUERY="$(printf "%s" "${SPLUNK_TEST_QUERY_B64}" | base64 -d)"
+      curl -kfsS \
+        --max-time 30 \
+        -u "admin:${SPLUNK_TEST_PASSWORD}" \
+        --data-urlencode "search=${SPLUNK_TEST_QUERY}" \
+        --data-urlencode "output_mode=json" \
+        "https://localhost:8089/services/search/jobs/export"
+    '
+}
+
+extract_splunk_stat() {
+  local field="$1"
+  sed -n "s/.*\"${field}\":\"\([0-9][0-9]*\)\".*/\1/p" | tail -n 1
+}
+
 identity_for() {
   local user_id client_service matrix_file raw_user raw_device raw_service raw_handle
   user_id="${1//$'\r'/}"

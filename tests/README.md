@@ -1,13 +1,20 @@
 # Test
 
-La suite definitiva di test e gestita separatamente dal gruppo.
+La suite applicativa autorevole della versione corrente si avvia dalla radice del
+progetto con:
 
-Questa cartella conserva materiale storico e appunti di verifica; alcuni script
-citano container non piu presenti nel `docker-compose.yml` corrente, per esempio
-`client_intruso`. Non considerarli come test automatici autorevoli della versione
-attuale.
+```bash
+bash tests/run_project_tests.sh
+```
 
-Per la verifica minima della configurazione usare:
+Il runner esegue gli accessi consentiti, gli accessi negati, i fallimenti mTLS e
+il risk score dinamico integrato con Splunk e Snort.
+
+Gli script `run_audit_snort.sh`, `run_audit_nftables.sh`, `config_audit.sh` e il
+materiale in `docs/` sono verifiche separate o storiche e non vengono eseguiti
+automaticamente dal runner principale.
+
+Per la verifica preliminare della configurazione usare:
 
 ```bash
 bash scripts/preflight.sh
