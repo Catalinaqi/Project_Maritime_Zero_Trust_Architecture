@@ -1,0 +1,213 @@
+# =============================================================================
+
+# MARITIME ZERO TRUST ARCHITECTURE - REGOLE SNORT 3
+
+# Sensore: ids_network_monitor
+
+# =============================================================================
+
+#
+
+# Variabili definite nella configurazione snort-zta.lua:
+
+# HOME_NET, EXTERNAL_NET, PUBLIC_NET, VPN_NET, SATELLITE_NET,
+
+# CORPORATE_NET, BACKEND_NET, PEP_PORT, OPA_PORTS, MONGO_PORT,
+
+# API_PORT, SIEM_PORTS e ADMIN_PORT.
+
+#
+
+# Ogni regola è mantenuta su una sola riga per evitare alterazioni
+
+# accidentali durante il trasferimento tra Windows e Linux.
+
+# =============================================================================
+
+# =============================================================================
+
+# CATEGORIA 0 - DIAGNOSTICA DELLA PIPELINE IDS
+
+# =============================================================================
+
+# Rileva pacchetti ICMP utilizzati per verificare Snort e Splunk.
+
+# NOTA: ZTA-MVP-001 e ZTA-MVP-002 sono regole diagnostiche che generano
+# un volume elevato di alert in ambienti operativi. Sono disabilitate per default
+# e possono essere riattivate temporaneamente per verificare la pipeline IDS-Splunk.
+# alert icmp any any -> any any (msg:"[ZTA-MVP-001] INTRUDER PING DETECTED"; sid:999901; rev:2;)
+# Versione con ambito limitato: solo ICMP da reti esterne verso HOME_NET.
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"[ZTA-MVP-001] ICMP FROM EXTERNAL NET"; sid:999901; rev:3;)
+
+# Rileva pacchetti TCP SYN utilizzati nei test diagnostici.
+
+# Versione con ambito limitato: solo SYN da reti esterne.
+alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"[ZTA-MVP-002] TCP SYN FROM EXTERNAL NET"; flags:S; detection_filter:track by_src,count 5,seconds 10; sid:999902; rev:3; priority:2;)
+
+# Rileva una sequenza SQL UNION SELECT in traffico applicativo in chiaro.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-MVP-003] SQLi ATTEMPT ON ENVOY - CLEAR-TEXT TEST"; flow:to_server; content:"union",nocase; content:"select",nocase,distance 1,within 50; sid:999903; rev:7; priority:1;)
+
+# Rileva tentativi di connessione diretta alla porta MongoDB.
+
+alert tcp any any -> $HOME_NET $MONGO_PORT (msg:"[ZTA-MVP-004] DIRECT MONGODB ATTEMPT"; flags:S; sid:999904; rev:2; priority:1;)
+
+# =============================================================================
+
+# CATEGORIA 1 - RICOGNIZIONE E DENIAL OF SERVICE
+
+# =============================================================================
+
+# Rileva scansioni TCP SYN provenienti da reti esterne.
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"[ZTA-001] RECON: TCP SYN PORT SCAN"; flags:S; detection_filter:track by_src,count 20,seconds 60; sid:1000001; rev:2; priority:2;)
+
+# Rileva un numero anomalo di pacchetti UDP.
+
+alert udp $EXTERNAL_NET any -> $HOME_NET any (msg:"[ZTA-002] RECON: UDP PORT SCAN"; detection_filter:track by_src,count 20,seconds 60; sid:1000002; rev:2; priority:2;)
+
+# Rileva scansioni TCP NULL.
+
+alert tcp any any -> $HOME_NET any (msg:"[ZTA-003] RECON: TCP NULL SCAN"; flags:0; sid:1000003; rev:2; priority:1;)
+
+# Rileva un possibile SYN flood.
+
+alert tcp any any -> $HOME_NET any (msg:"[ZTA-004] DDOS: TCP SYN FLOOD"; flags:S; detection_filter:track by_dst,count 100,seconds 10; sid:1000004; rev:2; priority:1;)
+
+# Rileva molte connessioni contemporanee verso il PEP.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-005] DDOS: POSSIBILE SLOWLORIS VERSO ENVOY"; flow:to_server,established; detection_filter:track by_src,count 50,seconds 60; sid:1000005; rev:3; priority:1;)
+
+# =============================================================================
+
+# CATEGORIA 2 - BYPASS DEL POLICY ENFORCEMENT POINT
+
+# =============================================================================
+
+# In una Zero Trust Architecture i client non devono raggiungere
+
+# direttamente database, backend, OPA, amministrazione Envoy o SIEM.
+
+alert tcp any any -> $HOME_NET $MONGO_PORT (msg:"[ZTA-006] BYPASS: ACCESSO DIRETTO A MONGODB"; flags:S; sid:1000006; rev:2; priority:1;)
+
+alert tcp any any -> $HOME_NET $API_PORT (msg:"[ZTA-007] BYPASS: ACCESSO DIRETTO AD API_BACKEND"; flags:S; sid:1000007; rev:2; priority:1;)
+
+alert tcp any any -> $HOME_NET $OPA_PORTS (msg:"[ZTA-008] BYPASS: ACCESSO DIRETTO A OPA"; flags:S; sid:1000008; rev:2; priority:1;)
+
+alert tcp any any -> $HOME_NET $ADMIN_PORT (msg:"[ZTA-009] CRITICAL: ACCESSO ALLA PORTA ADMIN DI ENVOY"; flags:S; sid:1000009; rev:2; priority:1;)
+
+alert tcp any any -> $HOME_NET $SIEM_PORTS (msg:"[ZTA-010] BYPASS: ACCESSO DIRETTO A SPLUNK"; flags:S; detection_filter:track by_src,count 10,seconds 30; sid:1000010; rev:2; priority:2;)
+
+# =============================================================================
+
+# CATEGORIA 3 - ANOMALIE TLS E mTLS
+
+# =============================================================================
+
+# Rileva una richiesta GET HTTP in chiaro sulla porta mTLS di Envoy.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-011] POLICY: HTTP GET IN CHIARO SULLA PORTA mTLS"; flow:to_server,established; content:"GET",offset 0,depth 3; sid:1000011; rev:2; priority:1;)
+
+# Rileva una richiesta POST HTTP in chiaro sulla porta mTLS di Envoy.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-012] POLICY: HTTP POST IN CHIARO SULLA PORTA mTLS"; flow:to_server,established; content:"POST",offset 0,depth 4; sid:1000012; rev:2; priority:1;)
+
+# Rileva record TLS compatibili con SSLv3.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-013] CRYPTO: POSSIBILE DOWNGRADE SSLV3"; flow:to_server,established; content:"|16 03 00|",offset 0,depth 3; sid:1000013; rev:4; priority:1;)
+
+# Rileva record TLS compatibili con TLS 1.0.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-013B] CRYPTO: POSSIBILE DOWNGRADE TLS 1.0"; flow:to_server,established; content:"|16 03 01|",offset 0,depth 3; sid:1000016; rev:2; priority:1;)
+
+# Rileva record TLS compatibili con TLS 1.1.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-013C] CRYPTO: POSSIBILE DOWNGRADE TLS 1.1"; flow:to_server,established; content:"|16 03 02|",offset 0,depth 3; sid:1000017; rev:2; priority:1;)
+
+# Rileva un record TLS Heartbeat potenzialmente anomalo.
+
+alert tcp any any -> $HOME_NET $PEP_PORT (msg:"[ZTA-014] CRYPTO: TLS HEARTBEAT RILEVATO"; flow:to_server,established; content:"|18 03|",offset 0,depth 2; sid:1000014; rev:2; priority:1;)
+
+# =============================================================================
+
+# CATEGORIA 4 - INJECTION APPLICATIVE
+
+# =============================================================================
+
+# Queste firme possono analizzare soltanto payload applicativi in chiaro.
+
+# Il traffico mTLS cifrato non è direttamente ispezionabile da Snort.
+
+alert tcp any any -> $HOME_NET [$PEP_PORT,$API_PORT] (msg:"[ZTA-015] INJECT: SQL UNION SELECT"; flow:to_server; content:"union",nocase; content:"select",nocase,distance 1,within 50; sid:1000015; rev:4; priority:1;)
+
+alert tcp any any -> $HOME_NET [$PEP_PORT,$API_PORT] (msg:"[ZTA-018] INJECT: DROP TABLE DATABASE COLLECTION OR INDEX"; flow:to_server; content:"drop",nocase; pcre:"/drop[[:space:]]+(table|database|collection|index)/i"; sid:1000018; rev:3; priority:1;)
+
+alert tcp any any -> $HOME_NET [$PEP_PORT,$API_PORT] (msg:"[ZTA-019] INJECT: COMMAND INJECTION CAT ETC PASSWD"; flow:to_server; content:"cat ",nocase; content:"/etc/passwd",nocase,distance 0,within 20; sid:1000019; rev:3; priority:1;)
+
+# =============================================================================
+
+# CATEGORIA 5 - POSSIBILE ESFILTRAZIONE
+
+# =============================================================================
+
+# Rileva il valore dell'opcode OP_MSG di MongoDB nel payload.
+
+alert tcp any any -> any any (msg:"[ZTA-020] EXFIL: MONGODB WIRE PROTOCOL RILEVATO"; flow:to_server,established; content:"|d4 07 00 00|"; sid:1000020; rev:3; priority:2;)
+
+# Rileva un volume elevato di connessioni da HOME_NET verso reti esterne.
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"[ZTA-021] EXFIL: VOLUME ANOMALO DI TRAFFICO IN USCITA"; flow:to_server,established; detection_filter:track by_src,count 500,seconds 60; sid:1000021; rev:2; priority:2;)
+
+# =============================================================================
+
+# CATEGORIA 6 - MOVIMENTO LATERALE TRA LE RETI
+
+# =============================================================================
+
+alert tcp $PUBLIC_NET any -> $VPN_NET any (msg:"[ZTA-022] LATERAL: PUBLIC_NET VERSO VPN_NET"; flags:S; sid:1000022; rev:2; priority:1;)
+
+alert tcp $PUBLIC_NET any -> $SATELLITE_NET any (msg:"[ZTA-023] LATERAL: PUBLIC_NET VERSO SATELLITE_NET"; flags:S; sid:1000023; rev:2; priority:1;)
+
+alert tcp $PUBLIC_NET any -> $CORPORATE_NET any (msg:"[ZTA-024] LATERAL: PUBLIC_NET VERSO CORPORATE_NET"; flags:S; sid:1000024; rev:2; priority:1;)
+
+alert tcp $PUBLIC_NET any -> $BACKEND_NET any (msg:"[ZTA-025] LATERAL: PUBLIC_NET VERSO BACKEND_NET"; flags:S; sid:1000025; rev:2; priority:1;)
+
+alert tcp $SATELLITE_NET any -> $CORPORATE_NET any (msg:"[ZTA-026] LATERAL: SATELLITE_NET VERSO CORPORATE_NET"; flags:S; sid:1000026; rev:2; priority:1;)
+
+alert tcp $SATELLITE_NET any -> $BACKEND_NET any (msg:"[ZTA-027] LATERAL: SATELLITE_NET VERSO BACKEND_NET"; flags:S; sid:1000027; rev:2; priority:1;)
+
+alert tcp $VPN_NET any -> $BACKEND_NET any (msg:"[ZTA-028] LATERAL: VPN_NET VERSO BACKEND_NET"; flags:S; sid:1000028; rev:2; priority:1;)
+
+# =============================================================================
+
+# CATEGORIA 7 - BRUTE FORCE E ABUSO DELLE CREDENZIALI
+
+# =============================================================================
+
+alert tcp any any -> $HOME_NET 22 (msg:"[ZTA-029] BRUTE: TENTATIVI RIPETUTI VERSO SSH"; flow:to_server,established; detection_filter:track by_src,count 5,seconds 60; sid:1000029; rev:2; priority:1;)
+
+alert tcp any any -> $HOME_NET $SIEM_PORTS (msg:"[ZTA-030] BRUTE: TENTATIVI RIPETUTI VERSO SPLUNK"; flow:to_server,established; detection_filter:track by_src,count 10,seconds 60; sid:1000030; rev:2; priority:2;)
+
+alert tcp any any -> $HOME_NET $OPA_PORTS (msg:"[ZTA-031] BRUTE: TENTATIVI RIPETUTI VERSO OPA"; flow:to_server,established; detection_filter:track by_src,count 15,seconds 30; sid:1000031; rev:2; priority:1;)
+
+# =============================================================================
+
+# CATEGORIA 8 - MANIPOLAZIONE DEL PIANO DI CONTROLLO
+
+# =============================================================================
+
+# Rileva tentativi di sostituzione delle policy OPA.
+
+alert tcp any any -> $HOME_NET $OPA_PORTS (msg:"[ZTA-032] POLICY TAMPER: PUT V1 POLICIES SU OPA"; flow:to_server,established; content:"PUT",offset 0,depth 3; content:"/v1/policies",nocase; sid:1000032; rev:2; priority:1;)
+
+# Rileva tentativi di modifica dei dati utilizzati nelle decisioni OPA.
+
+alert tcp any any -> $HOME_NET $OPA_PORTS (msg:"[ZTA-033] POLICY TAMPER: PUT V1 DATA SU OPA"; flow:to_server,established; content:"PUT",offset 0,depth 3; content:"/v1/data",nocase; sid:1000033; rev:2; priority:1;)
+
+# Rileva richieste DELETE indirizzate alla REST API di OPA.
+
+alert tcp any any -> $HOME_NET $OPA_PORTS (msg:"[ZTA-034] POLICY TAMPER: DELETE SU OPA"; flow:to_server,established; content:"DELETE",offset 0,depth 6; sid:1000034; rev:2; priority:1;)
+
+# Rileva un possibile flooding di eventi verso Splunk HEC.
+
+alert tcp any any -> $HOME_NET $SIEM_PORTS (msg:"[ZTA-035] SIEM: POSSIBILE LOG FLOODING VERSO SPLUNK"; flow:to_server,established; detection_filter:track by_src,count 200,seconds 10; sid:1000035; rev:2; priority:2;)

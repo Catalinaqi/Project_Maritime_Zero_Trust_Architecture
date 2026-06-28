@@ -1,0 +1,42 @@
+{
+  "input": {
+    "attributes": {
+      "source": {
+        "address": {
+          "socketAddress": {
+            "address": "172.20.11.2",
+            "portValue": 37620
+          }
+        },
+        "principal": "L=Terminal-Ancona,CN=D-001,OU=Device,O=Maritime_Zero_Trust"
+      },
+      "destination": {
+        "address": {
+          "socketAddress": {
+            "address": "172.20.11.7",
+            "portValue": 8443
+          }
+        }
+      },
+      "metadataContext": {
+        "filterMetadata": {
+          "envoy.filters.http.lua": {
+            "context_extensions": {
+              "collection": "risorse",
+              "command": "find",
+              "path": "/risorse",
+              "user_id": "operatore_ancona"
+            }
+          }
+        }
+      },
+      "request": {
+        "http": {
+          "method": "GET",
+          "path": "/risorse",
+          "headers": {}
+        }
+      }
+    }
+  }
+}

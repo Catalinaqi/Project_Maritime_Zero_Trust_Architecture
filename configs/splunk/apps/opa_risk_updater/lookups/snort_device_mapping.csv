@@ -1,0 +1,5 @@
+src_ip,device_id,user_id,trust_level
+172.20.11.31,D-001,operatore_ancona,trusted
+172.20.12.31,D-002,capitano_claudia,trusted
+172.20.10.31,D-SOC,soc_admin,trusted
+172.20.13.21,UNKNOWN,intruso,untrusted

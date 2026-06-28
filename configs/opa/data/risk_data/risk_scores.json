@@ -1,0 +1,46 @@
+{
+  "capitano_claudia": {
+    "denied_count": 1,
+    "device_id": "",
+    "is_anomaly": false,
+    "last_snort_message": "",
+    "last_snort_rule": "",
+    "risk_score": 10,
+    "snort_alert_count": 0,
+    "snort_critical_count": 0,
+    "trust_level": "",
+    "unique_sources": 1,
+    "updated_at": "2026-06-28T16:20:01.734633+00:00"
+  },
+  "intruso": {
+    "denied_count": 8,
+    "is_anomaly": true,
+    "risk_score": 90
+  },
+  "operatore_ancona": {
+    "denied_count": 1,
+    "device_id": "",
+    "is_anomaly": false,
+    "last_snort_message": "",
+    "last_snort_rule": "",
+    "risk_score": 10,
+    "snort_alert_count": 0,
+    "snort_critical_count": 0,
+    "trust_level": "",
+    "unique_sources": 1,
+    "updated_at": "2026-06-28T16:21:01.847322+00:00"
+  },
+  "soc_admin": {
+    "denied_count": 1,
+    "device_id": "",
+    "is_anomaly": false,
+    "last_snort_message": "",
+    "last_snort_rule": "",
+    "risk_score": 10,
+    "snort_alert_count": 0,
+    "snort_critical_count": 0,
+    "trust_level": "",
+    "unique_sources": 1,
+    "updated_at": "2026-06-28T17:49:00.916118+00:00"
+  }
+}

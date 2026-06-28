@@ -1,0 +1,26 @@
+{
+  "corporate_net": {
+    "cidrs": [
+      "172.20.10.0/24"
+    ],
+    "description": "Rete aziendale interna"
+  },
+  "vpn_net": {
+    "cidrs": [
+      "172.20.11.0/24"
+    ],
+    "description": "Rete VPN per operatori autorizzati"
+  },
+  "satellite_net": {
+    "cidrs": [
+      "172.20.12.0/24"
+    ],
+    "description": "Rete satellitare nave-terra"
+  },
+  "public_net": {
+    "cidrs": [
+      "172.20.13.0/24"
+    ],
+    "description": "Rete pubblica/non fidata"
+  }
+}

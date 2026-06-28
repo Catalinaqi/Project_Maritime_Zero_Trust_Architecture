@@ -1,0 +1,29 @@
+# Configurazione del server OPA per l'integrazione con Envoy e Splunk.
+
+plugins:
+  # Il plugin OPA-Envoy espone il gRPC ext_authz sulla porta 9191.
+  # Envoy interroga questo endpoint per ogni richiesta ricevuta.
+  envoy_ext_authz_grpc:
+    addr: ":9191"
+    path: envoy/authz/decision
+
+services:
+  # Splunk HTTP Event Collector: destinazione dei decision log OPA.
+  # La comunicazione avviene esclusivamente sulla rete Docker interna
+  # di monitoraggio (monitoring_net); Splunk non è esposto a Internet.
+  splunk_hec:
+    url: "http://siem_central:8088"
+    headers:
+      Authorization: "Splunk ${SPLUNK_HEC_TOKEN}"
+
+decision_logs:
+  # I decision log vengono scritti sulla console (visibili con docker logs)
+  # e inviati a Splunk tramite HEC per la ricerca centralizzata.
+  console: true
+  service: splunk_hec
+  # L'endpoint raw richiede il parametro channel per distinguere i flussi.
+  # Il GUID deve essere univoco e può essere qualsiasi UUID valido.
+  resource: "/services/collector/raw?channel=7c14dd49-51a0-4f31-9fe9-9c56b90bd252&sourcetype=opa_decision&index=main"
+  reporting:
+    min_delay_seconds: 5
+    max_delay_seconds: 10

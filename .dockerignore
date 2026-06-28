@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+certs/**
+!certs/**/.gitkeep
+node_modules
+**/node_modules
+logs
+**/*.log
+tests/**/out
+*.zip
+*.pdf
+.idea
+.vscode
+.DS_Store
+Thumbs.db
