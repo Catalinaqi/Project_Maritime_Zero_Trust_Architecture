@@ -1,1 +1,2 @@
-"user_id","risk_score",isAnomaly,"denied_count","unique_sources","updated_at"
+"user_id","risk_score",isAnomaly,"denied_count","unique_sources","snort_alert_count","snort_critical_count","last_snort_rule","last_snort_message","device_id","trust_level","updated_at"
+"operatore_ancona",80,1,9,2,0,0,,,,,1782640560
