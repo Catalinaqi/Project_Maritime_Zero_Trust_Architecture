@@ -22,31 +22,24 @@
 
 </div>
 
-> _"Questo progetto è stato sviluppato esclusivamente per scopi accademici e di ricerca. L'architettura, le configurazioni, 
-> le topologie di rete e i dati utilizzati sono puramente fittizi, generati sinteticamente o basati su best practice di settore 
-> (NIST SP 800-207)._
+> Progetto sviluppato per finalità accademiche e di ricerca. Architettura,
+> configurazioni, topologie di rete e dati sono fittizi e seguono i principi
+> del NIST SP 800-207.
 
-<div align="center">
-  <sub>Built with ❤️ for security-first operations 🔒</sub>
-</div>
-<br><br>
 ---
 
 ## Indice
 
 1. [Panoramica](#panoramica)
 2. [Architettura ZTA](#architettura-zta)
-    - [2.1 Diagrammi](#diagrammi)
-    - [2.2 Componenti del sistema](#componenti-del-sistema)
-    - [2.3 Reti Docker](#reti-docker)
+    - [2.1 Componenti del sistema](#componenti-del-sistema)
+    - [2.2 Reti Docker](#reti-docker)
 3. [Tecnologie e strumenti](#tecnologie-e-strumenti)
 4. [Prerequisiti](#prerequisiti)
-5. [Guida rapida](#guida-rapida)
-    - [5.1 Configurazione ambiente](#1-configurazione-ambiente)
-    - [5.2 Generazione PKI](#2-generazione-pki-infrastrutturale)
-    - [5.3 Provisioning TPM](#3-provisioning-tpm)
-    - [5.4 Verifica preliminare](#4-verifica-preliminare)
-    - [5.5 Avvio dello stack](#5-avvio-dello-stack)
+5. [Avvio del progetto](#avvio-del-progetto)
+    - [5.1 Avvio automatico su Windows](#avvio-automatico-su-windows-consigliato)
+    - [5.2 Avvio manuale con Git Bash](#avvio-manuale-con-git-bash)
+    - [5.3 Verifica dei servizi](#verifica-dei-servizi)
 6. [Flusso Zero Trust](#flusso-zero-trust)
 7. [Rischio dinamico](#rischio-dinamico)
 8. [Esecuzione dei test](#esecuzione-dei-test)
@@ -62,7 +55,6 @@
 13. [Documentazione dettagliata](#documentazione-dettagliata)
 14. [Risoluzione problemi](#risoluzione-problemi)
 15. [Limitazioni note](#limitazioni-note)
-16. [Licenza](#licenza)
 
 ---
 
@@ -88,14 +80,6 @@ Decision log e alert confluiscono in Splunk.
 Il comportamento predefinito della policy è **deny**. Le reti `backend_net` e
 `monitoring_net` sono reti Docker interne non raggiungibili direttamente dai
 client.
-
-### Diagrammi
-
-#### Flusso logico (Graph LR)
-
-#### Architettura Generale (Graph TD)
-
-#### Sequenza delle autorizzazioni (Sequence Diagram)
 
 ### Componenti del sistema
 
@@ -155,38 +139,45 @@ client.
 
 ---
 
-## Guida rapida
+## Avvio del progetto
 
-### 1. Configurazione ambiente
+Eseguire i comandi dalla cartella principale del repository con Docker Desktop
+già avviato.
+
+### Avvio automatico su Windows (consigliato)
+
+Da PowerShell o Prompt dei comandi:
+
+```powershell
+.\setup-testing.cmd
+```
+
+Lo script verifica i prerequisiti, crea `.env` se mancante, inizializza i dati
+runtime, genera certificati e identità TPM, costruisce lo stack con il profilo
+`testing` e attende che tutti i servizi risultino pronti.
+
+Per riavviare l'ambiente senza ricostruire le immagini:
+
+```powershell
+.\setup-testing.cmd -SkipBuild
+```
+
+### Avvio manuale con Git Bash
+
+Creare il file di configurazione locale:
 
 ```bash
 cp .env.example .env
 ```
 
-Sostituire almeno i seguenti valori nel file `.env`:
-
-| Variabile             | Descrizione                         |
-|-----------------------|-------------------------------------|
-| `MONGO_ROOT_PASSWORD` | Password amministrativa MongoDB     |
-| `MONGO_APP_PASSWORD`  | Password account applicativo        |
-| `SPLUNK_PASSWORD`     | Password admin Splunk               |
-| `SPLUNK_HEC_TOKEN`    | Token HEC Splunk in formato UUID    |
-
-**Preparazione automatica su Windows:**
-
-```cmd
-setup-testing.cmd
-```
-
-Lo script crea `.env` se mancante, genera i certificati, effettua il provisioning dei TPM, costruisce e avvia lo stack, attende gli healthcheck.
-
-Nel flusso manuale inizializzare anche i file runtime mutabili:
+Nel file `.env`, sostituire i valori `CHANGE_ME_*` e il token HEC di esempio.
+Inizializzare quindi i file runtime:
 
 ```bash
 bash scripts/init_runtime.sh
 ```
 
-### 2. Generazione PKI infrastrutturale
+#### Generazione PKI infrastrutturale
 
 ```bash
 bash scripts/generate_certs.sh
@@ -201,13 +192,13 @@ Produce:
 
 > **Principio ZTA**: la chiave `ca.key` resta **sull'host** e NON viene mai montata nei container.
 
-### 3. Provisioning TPM
+#### Provisioning TPM
 
 ```bash
-bash scripts/generate_device_certs.sh
+BINDINGS_FILE="scripts/identity_bindings.testing.conf" bash scripts/generate_device_certs.sh
 ```
 
-Oppure, per la versione legacy a tre identità fisse:
+In alternativa, per la procedura di compatibilità con tre identità fisse:
 
 ```bash
 bash scripts/provision_tpm_devices.sh
@@ -228,7 +219,7 @@ spiffe://maritime.local/users/<utente>/devices/<dispositivo>
 
 > **Principio ZTA**: la chiave privata **nasce e resta nel TPM** — non è mai esportabile.
 
-### 4. Verifica preliminare
+#### Verifica preliminare
 
 ```bash
 bash scripts/preflight.sh
@@ -240,17 +231,28 @@ Il preflight controlla:
 - Validità del docker-compose.yml
 - Presenza del filtro Lua Envoy e della policy OPA
 
-### 5. Avvio dello stack
+#### Avvio dello stack
 
 ```bash
-docker compose up -d --build
+docker compose --profile testing up -d --build
 ```
+
+### Verifica dei servizi
 
 Splunk può impiegare alcuni minuti per diventare disponibile. Controllare lo stato:
 
 ```bash
-docker compose ps
-docker compose logs --tail 50 siem_central pdp_engine pep_gateway
+docker compose --profile testing ps
+docker compose --profile testing logs --tail 50 siem_central pdp_engine pep_gateway
+```
+
+Splunk è disponibile su `http://localhost:8000`, con utente `admin` e la
+password definita da `SPLUNK_PASSWORD` nel file `.env`.
+
+Per eseguire l'intera suite da Git Bash:
+
+```bash
+bash tests/run_project_tests.sh
 ```
 
 ---
@@ -417,7 +419,7 @@ Project_Maritime_Zero_Trust_Architecture/
 ├── scripts/                           # Script di automazione
 │   ├── generate_certs.sh              # PKI infrastrutturale
 │   ├── generate_device_certs.sh       # Certificati TPM (tutti i binding)
-│   ├── provision_tpm_devices.sh       # Provisioning TPM (legacy)
+│   ├── provision_tpm_devices.sh       # Provisioning TPM di compatibilità
 │   ├── init_runtime.sh                # Crea i dati runtime dai template
 │   ├── preflight.sh                   # Verifica preliminare
 │   ├── clean_runtime.sh               # Pulizia container/volumi
@@ -504,14 +506,6 @@ Project_Maritime_Zero_Trust_Architecture/
 - **L'identità hardware** è simulata con SWTPM (emulatore software, non chip fisico).
 - **Revoca dei certificati** non è implementata via CRL/OCSP; la revoca è gestita a livello di policy OPA.
 
----
+**Versione:** 1.0.0
 
-## Licenza
-
-Distribuito sotto licenza **MIT**. Vedi il file `LICENSE` per maggiori dettagli.
-
----
-
-
-**Versione**: 1.0.0
-**Ultimo aggiornamento**: 2026-06-28
+**Ultimo aggiornamento:** 2026-06-30
