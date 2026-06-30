@@ -1,0 +1,22 @@
+{
+  "capitano_claudia": {
+    "denied_count": 0,
+    "is_anomaly": false,
+    "risk_score": 10
+  },
+  "intruso": {
+    "denied_count": 8,
+    "is_anomaly": true,
+    "risk_score": 90
+  },
+  "operatore_ancona": {
+    "denied_count": 0,
+    "is_anomaly": false,
+    "risk_score": 10
+  },
+  "soc_admin": {
+    "denied_count": 0,
+    "is_anomaly": false,
+    "risk_score": 10
+  }
+}

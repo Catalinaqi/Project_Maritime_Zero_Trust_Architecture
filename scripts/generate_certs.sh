@@ -33,7 +33,7 @@ mkdir -p "${CERT_ROOT}/devices/D-002"
 mkdir -p "${CERT_ROOT}/devices/D-SOC"
 mkdir -p "${TMP_DIR}"
 
-find "${CA_DIR}" "${SERVER_DIR}" "${MONGO_DIR}" -type f ! -name '.gitkeep' -delete
+find "${CA_DIR}" "${SERVER_DIR}" "${MONGO_DIR}" -type f -delete
 umask 077
 
 cat > "${TMP_DIR}/ca.cnf" <<'EOF'

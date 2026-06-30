@@ -1,0 +1,5 @@
+"user_id","baseline_risk_score","baseline_is_anomaly","baseline_denied_count"
+"operatore_ancona",10,0,0
+"capitano_claudia",10,0,0
+"soc_admin",10,0,0
+"intruso",90,1,8

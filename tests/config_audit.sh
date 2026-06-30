@@ -1,21 +1,20 @@
 #!/bin/bash
 # =============================================================================
 # MARITIME ZTA - CONFIGURAZIONE UNIFICATA PER AUDIT NFTABLES E SNORT
-# File: config_audit.sh
 # =============================================================================
 
-# --- Container names (comuni a entrambi) ---
+# Nomi dei container condivisi dalle suite di audit.
 export FW_CONTAINER="firewall_perimeter"
 export ENVOY_CONTAINER="pep_gateway"
 export CLIENT_D001="client_d001_tpm"
 export CLIENT_D002="client_d002_tpm"
 export CLIENT_DSOC="client_dsoc_tpm"
 
-# Directory script e cartella output
+# Percorsi degli script e dei report.
 AUDIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$AUDIT_DIR/out"
 
-# --- File di report separati per i due audit ---
+# File di report distinti per le due suite.
 export REPORT_FILE_NFTABLES="$AUDIT_DIR/out/report_tests_nftables.txt"
 export REPORT_FILE_SNORT="$AUDIT_DIR/out/report_tests_snort.txt"
 
@@ -44,11 +43,11 @@ export CLIENT_DSOC_IP="172.20.10.31"
 
 # -------------------------------------------------------------------------
 # ENVOY PEP GATEWAY - IP su ogni rete
-# (usati da nftables per le regole DNAT/FORWARD)
+# Utilizzati dalle verifiche delle regole DNAT e FORWARD.
 # -------------------------------------------------------------------------
-# IP principale nella rete Zero Trust (Usato da nftables per il bersaglio DNAT)
+# Indirizzo principale di Envoy usato come destinazione del DNAT.
 export ENVOY_IP="172.20.2.7"
-# IP secondari di Envoy nelle varie reti (A causa della topologia attuale)
+# Indirizzi di Envoy sulle reti previste dalla topologia.
 export ENVOY_BACKEND_IP="172.20.3.7"
 export ENVOY_CORPORATE_IP="172.20.10.7"
 export ENVOY_VPN_IP="172.20.11.7"

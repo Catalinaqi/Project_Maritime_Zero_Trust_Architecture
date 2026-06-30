@@ -1,8 +1,8 @@
 # Certificati generati localmente
 
-Questa directory viene mantenuta nel repository soltanto tramite file `.gitkeep`.
-Le chiavi private e i certificati generati non devono essere versionati né inclusi
-nel pacchetto di consegna.
+La directory locale `certs/` è generata dagli script ed è interamente esclusa
+da Git. Le chiavi private e i certificati non vengono quindi pubblicati su
+GitHub né inclusi nel pacchetto di consegna.
 
 ## Struttura della directory `certs/`
 

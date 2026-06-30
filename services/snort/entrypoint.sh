@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =============================================================================
-# SNORT 3 IDS ENTRYPOINT
+# AVVIO DEL SERVIZIO IDS SNORT 3
 # Maritime Zero Trust Architecture
 # =============================================================================
 

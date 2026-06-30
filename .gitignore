@@ -6,10 +6,12 @@
 *.token
 
 # Certificati e chiavi generate
-certs/**
-!certs/**/
-!certs/**/.gitkeep
-!README_CERTS.md
+/certs/
+
+# Stato runtime rigenerabile
+/configs/opa/data/risk_data/risk_scores.json
+/configs/opa/data/risk_data/risk-*.json
+/configs/splunk/apps/opa_risk_updater/lookups/historical_risk_scores.csv
 
 # Dati runtime Docker
 volumes/
@@ -47,7 +49,6 @@ test-results/
 test-reports/
 tests/**/out/
 
-
-# continue +  deepseek
-.continue_cyber/
-.continuerc.yml
+# Metadati locali generati da Splunk
+/configs/splunk/apps/opa_risk_updater/local/
+/configs/splunk/apps/opa_risk_updater/metadata/local.meta

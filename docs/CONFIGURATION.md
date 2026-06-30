@@ -1,6 +1,6 @@
 # Configurazioni – Maritime Zero Trust Architecture
 
-Questa directory contiene tutti i file di configurazione necessari per il
+La directory `configs/` contiene tutti i file di configurazione necessari per il
 funzionamento dello stack ZTA. Ogni sottocartella corrisponde a un componente
 dell'architettura e la sua documentazione, qui raccolta, evidenzia il ruolo
 specifico all'interno del modello **Never Trust, Always Verify**.
@@ -15,9 +15,7 @@ configs/
 │   └── rules.nft
 ├── envoy/                        # Policy Enforcement Point (Envoy)
 │   ├── envoy.yaml
-│   ├── mongo_inspector_active.lua
-│   └── mongo_inspector.lua/
-│       └── mongo.inspector.prima-identity-fix.lua
+│   └── mongo_inspector_active.lua
 ├── snort/                        # IDS passivo Snort 3
 │   ├── snort-zta.lua
 │   └── snort-zta.rules
@@ -25,20 +23,22 @@ configs/
 │   ├── config.yaml               # (non modificabile manualmente)
 │   ├── mock_input.json
 │   ├── policies/
-│   │   ├── authorization.rego
-│   │   └── test-policy.rego
+│   │   └── authorization.rego
 │   └── data/
 │       ├── roles.json
 │       ├── devices.json
 │       ├── networks.json
 │       ├── access_rules.json
 │       └── risk_data/
-│           └── risk_scores.json
+│           └── risk_scores.json       # Generato a runtime
 ├── mongodb/                      # Database MongoDB con TLS obbligatorio
 │   ├── mongod.conf
 │   └── init-scripts/
 │       ├── 01-init.js
 │       └── 02-seed.js
+├── runtime-templates/            # Baseline versionate dei dati mutabili
+│   ├── risk_scores.json
+│   └── historical_risk_scores.csv
 └── splunk/                       # SIEM Splunk Enterprise
     ├── default.yml
     └── apps/
@@ -55,7 +55,8 @@ configs/
             │   └── inputs.conf
             └── lookups/
                 ├── snort_device_mapping.csv
-                └── historical_risk_scores.csv
+                ├── risk_user_baseline.csv
+                └── historical_risk_scores.csv  # Generato a runtime
 ```
 
 ---
@@ -129,10 +130,6 @@ Filtro Lua attualmente in uso. Funzioni principali:
   estrae SAN URI SPIFFE, soggetto, CN e OU, setta `x-zta-*` e popola il
   metadata contestuale per OPA.
 
-### File: `mongo_inspector.lua/mongo.inspector.prima-identity-fix.lua`
-
-Versione legacy del filtro Lua, conservata per riferimento.
-
 **Principio ZTA:** *Never trust, always verify* – ogni richiesta è autenticata
 via mTLS e autorizzata da OPA prima di raggiungere il backend. *Identity‑aware
 enforcement* – il filtro estrae identità dal certificato, non da header
@@ -201,10 +198,6 @@ Policy ABAC principale. Implementa:
 
 Policy di default: **deny**.
 
-#### `test-policy.rego`
-
-Versione di supporto, strutturalmente identica, usata per confronto e debug.
-
 ### Directory `data/`
 
 #### `roles.json`
@@ -235,7 +228,9 @@ Due sezioni:
 
 Stato corrente dei risk score per utente, aggiornato periodicamente da
 Splunk tramite `opa_risk_updater`. Include `denied_count`, `is_anomaly`,
-`risk_score`, `snort_alert_count`, ecc.
+`risk_score`, `snort_alert_count`, ecc. Il file non è versionato: viene creato
+da `scripts/init_runtime.sh` usando il template pulito in
+`configs/runtime-templates/risk_scores.json`.
 
 ### File: `mock_input.json`
 
@@ -293,7 +288,8 @@ Metadati dell'app: autore, descrizione, versione 1.0, non visibile in UI.
 
 #### `default/transforms.conf`
 
-Registra il lookup CSV `historical_risk_scores.csv`.
+Registra il lookup runtime `historical_risk_scores.csv` e la baseline
+versionata `risk_user_baseline.csv`.
 
 #### `default/alert_actions.conf`
 
@@ -306,8 +302,10 @@ Saved search `Calcolo Dinamico Risk Score OPA` eseguita ogni minuto.
 Combina decision log OPA (`sourcetype=opa_decision`) e alert Snort
 (`sourcetype=snort_alert_json`), calcola `denied_count`, `unique_sources`,
 `snort_alert_count`, `snort_critical_count`, determina `isAnomaly` e
-`risk_score` (da 10 a 100) e scrive il risultato nel lookup CSV. Al termine
-scatena l'azione `opa_risk_updater`.
+`risk_score` (da 10 a 100) e scrive il risultato nel lookup CSV. Prima
+dell'aggregazione aggiunge la baseline di tutti gli utenti configurati, così
+anche chi non genera eventi negli ultimi cinque minuti rimane nel lookup. Al
+termine scatena l'azione `opa_risk_updater`.
 
 #### `local/props.conf`
 
@@ -326,10 +324,17 @@ Monitora tre file di log:
 Mappa IP sorgente a `user_id`, `device_id` e `trust_level`, usata dalla
 saved search per arricchire gli alert Snort senza firma.
 
+#### `lookups/risk_user_baseline.csv`
+
+Elenca tutti gli utenti che devono comparire nel calcolo del rischio e i loro
+valori minimi: rischio 10 per gli utenti autorizzati e rischio 90 per
+`intruso`. Impedisce che un utente senza eventi recenti scompaia dal lookup.
+
 #### `lookups/historical_risk_scores.csv`
 
 Storico dei risk score per utente, prodotto dalla saved search e consumato
-dallo script Python.
+dallo script Python. Anche questo file è runtime e viene inizializzato dal
+template versionato `configs/runtime-templates/historical_risk_scores.csv`.
 
 #### `bin/opa_risk_updater.py`
 

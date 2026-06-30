@@ -22,31 +22,24 @@
 
 </div>
 
-> _"Questo progetto è stato sviluppato esclusivamente per scopi accademici e di ricerca. L'architettura, le configurazioni, 
-> le topologie di rete e i dati utilizzati sono puramente fittizi, generati sinteticamente o basati su best practice di settore 
-> (NIST SP 800-207)._
+> Progetto sviluppato per finalità accademiche e di ricerca. Architettura,
+> configurazioni, topologie di rete e dati sono fittizi e seguono i principi
+> del NIST SP 800-207.
 
-<div align="center">
-  <sub>Built with ❤️ for security-first operations 🔒</sub>
-</div>
-<br><br>
 ---
 
 ## Indice
 
 1. [Panoramica](#panoramica)
 2. [Architettura ZTA](#architettura-zta)
-    - [2.1 Diagrammi](#diagrammi)
-    - [2.2 Componenti del sistema](#componenti-del-sistema)
-    - [2.3 Reti Docker](#reti-docker)
+    - [2.1 Componenti del sistema](#componenti-del-sistema)
+    - [2.2 Reti Docker](#reti-docker)
 3. [Tecnologie e strumenti](#tecnologie-e-strumenti)
 4. [Prerequisiti](#prerequisiti)
-5. [Guida rapida](#guida-rapida)
-    - [5.1 Configurazione ambiente](#1-configurazione-ambiente)
-    - [5.2 Generazione PKI](#2-generazione-pki-infrastrutturale)
-    - [5.3 Provisioning TPM](#3-provisioning-tpm)
-    - [5.4 Verifica preliminare](#4-verifica-preliminare)
-    - [5.5 Avvio dello stack](#5-avvio-dello-stack)
+5. [Avvio del progetto](#avvio-del-progetto)
+    - [5.1 Avvio automatico su Windows](#avvio-automatico-su-windows-consigliato)
+    - [5.2 Avvio manuale con Git Bash](#avvio-manuale-con-git-bash)
+    - [5.3 Verifica dei servizi](#verifica-dei-servizi)
 6. [Flusso Zero Trust](#flusso-zero-trust)
 7. [Rischio dinamico](#rischio-dinamico)
 8. [Esecuzione dei test](#esecuzione-dei-test)
@@ -62,7 +55,6 @@
 13. [Documentazione dettagliata](#documentazione-dettagliata)
 14. [Risoluzione problemi](#risoluzione-problemi)
 15. [Limitazioni note](#limitazioni-note)
-16. [Licenza](#licenza)
 
 ---
 
@@ -88,14 +80,6 @@ Decision log e alert confluiscono in Splunk.
 Il comportamento predefinito della policy è **deny**. Le reti `backend_net` e
 `monitoring_net` sono reti Docker interne non raggiungibili direttamente dai
 client.
-
-### Diagrammi
-
-#### Flusso logico (Graph LR)
-
-#### Architettura Generale (Graph TD)
-
-#### Sequenza delle autorizzazioni (Sequence Diagram)
 
 ### Componenti del sistema
 
@@ -155,32 +139,45 @@ client.
 
 ---
 
-## Guida rapida
+## Avvio del progetto
 
-### 1. Configurazione ambiente
+Eseguire i comandi dalla cartella principale del repository con Docker Desktop
+già avviato.
+
+### Avvio automatico su Windows (consigliato)
+
+Da PowerShell o Prompt dei comandi:
+
+```powershell
+.\setup-testing.cmd
+```
+
+Lo script verifica i prerequisiti, crea `.env` se mancante, inizializza i dati
+runtime, genera certificati e identità TPM, costruisce lo stack con il profilo
+`testing` e attende che tutti i servizi risultino pronti.
+
+Per riavviare l'ambiente senza ricostruire le immagini:
+
+```powershell
+.\setup-testing.cmd -SkipBuild
+```
+
+### Avvio manuale con Git Bash
+
+Creare il file di configurazione locale:
 
 ```bash
 cp .env.example .env
 ```
 
-Sostituire almeno i seguenti valori nel file `.env`:
+Nel file `.env`, sostituire i valori `CHANGE_ME_*` e il token HEC di esempio.
+Inizializzare quindi i file runtime:
 
-| Variabile             | Descrizione                         |
-|-----------------------|-------------------------------------|
-| `MONGO_ROOT_PASSWORD` | Password amministrativa MongoDB     |
-| `MONGO_APP_PASSWORD`  | Password account applicativo        |
-| `SPLUNK_PASSWORD`     | Password admin Splunk               |
-| `SPLUNK_HEC_TOKEN`    | Token HEC Splunk in formato UUID    |
-
-**Preparazione automatica su Windows:**
-
-```cmd
-setup-testing.cmd
+```bash
+bash scripts/init_runtime.sh
 ```
 
-Lo script crea `.env` se mancante, genera i certificati, effettua il provisioning dei TPM, costruisce e avvia lo stack, attende gli healthcheck.
-
-### 2. Generazione PKI infrastrutturale
+#### Generazione PKI infrastrutturale
 
 ```bash
 bash scripts/generate_certs.sh
@@ -195,13 +192,13 @@ Produce:
 
 > **Principio ZTA**: la chiave `ca.key` resta **sull'host** e NON viene mai montata nei container.
 
-### 3. Provisioning TPM
+#### Provisioning TPM
 
 ```bash
-bash scripts/generate_device_certs.sh
+BINDINGS_FILE="scripts/identity_bindings.testing.conf" bash scripts/generate_device_certs.sh
 ```
 
-Oppure, per la versione legacy a tre identità fisse:
+In alternativa, per la procedura di compatibilità con tre identità fisse:
 
 ```bash
 bash scripts/provision_tpm_devices.sh
@@ -222,7 +219,7 @@ spiffe://maritime.local/users/<utente>/devices/<dispositivo>
 
 > **Principio ZTA**: la chiave privata **nasce e resta nel TPM** — non è mai esportabile.
 
-### 4. Verifica preliminare
+#### Verifica preliminare
 
 ```bash
 bash scripts/preflight.sh
@@ -234,17 +231,28 @@ Il preflight controlla:
 - Validità del docker-compose.yml
 - Presenza del filtro Lua Envoy e della policy OPA
 
-### 5. Avvio dello stack
+#### Avvio dello stack
 
 ```bash
-docker compose up -d --build
+docker compose --profile testing up -d --build
 ```
+
+### Verifica dei servizi
 
 Splunk può impiegare alcuni minuti per diventare disponibile. Controllare lo stato:
 
 ```bash
-docker compose ps
-docker compose logs --tail 50 siem_central pdp_engine pep_gateway
+docker compose --profile testing ps
+docker compose --profile testing logs --tail 50 siem_central pdp_engine pep_gateway
+```
+
+Splunk è disponibile su `http://localhost:8000`, con utente `admin` e la
+password definita da `SPLUNK_PASSWORD` nel file `.env`.
+
+Per eseguire l'intera suite da Git Bash:
+
+```bash
+bash tests/run_project_tests.sh
 ```
 
 ---
@@ -266,15 +274,23 @@ docker compose logs --tail 50 siem_central pdp_engine pep_gateway
 
 ## Rischio dinamico
 
-| Condizione          | Risk Score |
-|---------------------|------------|
-| `denied_count > 10` | 95         |
-| `denied_count > 5`  | 80         |
-| `denied_count > 2`  | 50         |
-| `unique_sources > 3`| 40         |
-| Nessuna anomalia    | 10         |
+| Condizione                                             | Risk Score |
+|--------------------------------------------------------|------------|
+| Alert critico Snort e più di 5 dinieghi                | 100        |
+| `denied_count > 10`                                    | 95         |
+| Almeno un alert critico Snort                          | 90         |
+| `denied_count > 5`                                     | 80         |
+| `snort_alert_count > 5`                                | 70         |
+| `denied_count > 2`                                     | 50         |
+| Almeno un alert Snort oppure `unique_sources > 3`      | 40         |
+| Nessuna anomalia                                       | 10         |
 
-Il risk score è calcolato da una saved search Splunk ogni 60 secondi, combinando decision log OPA e alert Snort, e viene scritto in `risk_scores.json` che OPA legge al ciclo successivo.
+Il risk score è calcolato da una saved search Splunk ogni 60 secondi,
+combinando decision log OPA e alert Snort, e viene scritto in
+`risk_scores.json` che OPA legge al ciclo successivo. Il lookup
+`risk_user_baseline.csv` mantiene sempre nel risultato tutti gli utenti
+configurati, anche quando non hanno eventi negli ultimi cinque minuti. La
+baseline impone inoltre un rischio minimo pari a 90 per l'identità `intruso`.
 
 ---
 
@@ -286,14 +302,17 @@ La suite di test end-to-end si avvia con:
 bash tests/run_project_tests.sh
 ```
 
+Al termine il runner stampa un blocco di query Splunk già pronto da copiare
+in **Search & Reporting**.
+
 Per un ambiente pulito:
 
 ```bash
 bash scripts/clean_runtime.sh
-rm -rf certs/
 bash scripts/generate_certs.sh
 BINDINGS_FILE="scripts/identity_bindings.testing.conf" bash scripts/generate_device_certs.sh
-./run_project_tests.sh
+bash scripts/init_runtime.sh
+bash tests/run_project_tests.sh
 ```
 
 ### Categorie di test
@@ -330,7 +349,7 @@ index=main sourcetype=envoy_access_json
 
 ## Comandi utili
 
-### Richieste dimostrative (client TPM)
+### Richieste di verifica (client TPM)
 
 ```bash
 # Avviare i client TPM
@@ -371,8 +390,7 @@ I certificati locali (`certs/`) **non** vengono eliminati dallo script di pulizi
 ```text
 Project_Maritime_Zero_Trust_Architecture/
 ├── README.md                          # Questo file
-├── README_CERTS.md                    # Documentazione certificati
-├── README-project.md                  # README in inglese (storico)
+├── SECURITY.md                        # Analisi e misure di sicurezza
 ├── .env.example                       # Template variabili d'ambiente
 ├── docker-compose.yml                 # Orchestrazione servizi
 ├── setup-testing.cmd                  # Setup automatico Windows
@@ -383,30 +401,36 @@ Project_Maritime_Zero_Trust_Architecture/
 │   ├── snort/                         # Snort Lua + regole custom
 │   ├── opa/                           # Policy Rego + dati statici
 │   ├── mongodb/                       # mongod.conf + init scripts
-│   └── splunk/                        # App opa_risk_updater + inputs
+│   ├── splunk/                        # App opa_risk_updater + inputs
+│   └── runtime-templates/             # Baseline rigenerabili di rischio e lookup
+├── docs/                              # Documentazione tecnica
+│   ├── CERTIFICATES.md
+│   ├── CONFIGURATION.md
+│   ├── SCRIPTS.md
+│   ├── SERVICES.md
+│   └── TESTS.md
 ├── services/                          # Dockerfile e entrypoint
-│   ├── opa/            envoy/         snort/         swtpm/
-│   ├── splunk/        clients/        clients_tpm/   nftables/
-│   ├── api_backend/   mongodb/
-│   └── README_SERVICE.md              # Documentazione servizi
+│   ├── api_backend/                   # API REST Node.js
+│   ├── clients_tpm/                   # Client con identità TPM-backed
+│   ├── envoy/                         # Policy Enforcement Point
+│   ├── nftables/                      # Firewall perimetrale
+│   ├── snort/                         # IDS passivo
+│   └── swtpm/                         # Emulatori TPM 2.0
 ├── scripts/                           # Script di automazione
 │   ├── generate_certs.sh              # PKI infrastrutturale
 │   ├── generate_device_certs.sh       # Certificati TPM (tutti i binding)
-│   ├── provision_tpm_devices.sh       # Provisioning TPM (legacy)
+│   ├── provision_tpm_devices.sh       # Provisioning TPM di compatibilità
+│   ├── init_runtime.sh                # Crea i dati runtime dai template
 │   ├── preflight.sh                   # Verifica preliminare
 │   ├── clean_runtime.sh               # Pulizia container/volumi
-│   ├── setup-testing.ps1              # Setup automatico Windows
-│   └── README_SCRIPTS.md              # Documentazione script
+│   └── setup-testing.ps1              # Setup automatico Windows
 ├── tests/                             # Suite di test end-to-end
 │   ├── run_project_tests.sh           # Runner principale
 │   ├── lib_test_helpers.sh            # Funzioni comuni
 │   ├── config_audit.sh                # Config audit unificata
-│   ├── test_*.sh                      # Suite specifiche
-│   └── README_TESTS.md                # Documentazione test
-├── certs/                             # Certificati (gitignored)
-│   ├── ca/          server/           mongodb/         devices/
-│   └── README_CERTS.md
-└── docs/                              # Documentazione aggiuntiva
+│   └── test_*.sh                      # Suite specifiche
+├── util/                              # Immagini usate dal README
+└── certs/                             # Generata localmente e ignorata da Git
 ```
 
 ---
@@ -452,14 +476,13 @@ Project_Maritime_Zero_Trust_Architecture/
 
 ## Documentazione dettagliata
 
-| File                            | Contenuto                                               |
-|---------------------------------|--------------------------------------------------------|
-| `README_CERTS.md`               | Struttura e ruolo dei certificati nella ZTA           |
-| `scripts/README_SCRIPTS.md`     | Descrizione completa di ogni script                   |
-| `configs/README_CONFIG.md`      | Configurazioni di tutti i servizi                     |
-| `services/README_SERVICE.md`    | Dockerfile, entrypoint e ruolo di ogni servizio       |
-| `tests/README_TESTS.md`         | Documentazione della suite di test                    |
-| `README-project.md`             | README storico in inglese                             |
+| File                         | Contenuto                                         |
+|------------------------------|---------------------------------------------------|
+| [`docs/CERTIFICATES.md`](docs/CERTIFICATES.md)   | Struttura e ruolo dei certificati nella ZTA |
+| [`docs/SCRIPTS.md`](docs/SCRIPTS.md)             | Descrizione completa di ogni script          |
+| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Configurazioni di tutti i servizi             |
+| [`docs/SERVICES.md`](docs/SERVICES.md)           | Dockerfile, entrypoint e ruolo dei servizi    |
+| [`docs/TESTS.md`](docs/TESTS.md)                 | Documentazione della suite di test            |
 
 ---
 
@@ -467,11 +490,11 @@ Project_Maritime_Zero_Trust_Architecture/
 
 | Problema                              | Soluzione                                                                 |
 |---------------------------------------|---------------------------------------------------------------------------|
-| **Certificati mancanti**              | Eseguire `bash scripts/generate_certs.sh` e poi `bash scripts/provision_tpm_devices.sh` |
-| **Client TPM senza certificato identità** | Rigenerare i certificati TPM con `bash scripts/provision_tpm_devices.sh` |
+| **Certificati mancanti**              | Eseguire `bash scripts/generate_certs.sh` e poi `bash scripts/generate_device_certs.sh` |
+| **Client TPM senza certificato identità** | Rigenerare i certificati TPM con `bash scripts/generate_device_certs.sh` |
 | **Splunk resta unhealthy**            | Attendere alcuni minuti; controllare `docker logs siem_central`. Se il volume è di versione precedente, eseguire `bash scripts/clean_runtime.sh` |
 | **Conflitto subnet Docker/VPN locale**| Aggiornare le variabili `NETWORK_*_SUBNET` in `.env`, gli IP statici in `docker-compose.yml` e i CIDR in `configs/opa/data/networks.json` |
-| **Test falliscono**                    | Verificare che lo stack sia in esecuzione e che i certificati esistano. Consultare `tests/README_TESTS.md` per diagnosi specifica. |
+| **Test falliscono**                    | Verificare che lo stack sia in esecuzione e che i certificati esistano. Consultare [`docs/TESTS.md`](docs/TESTS.md) per diagnosi specifica. |
 
 ---
 
@@ -483,14 +506,6 @@ Project_Maritime_Zero_Trust_Architecture/
 - **L'identità hardware** è simulata con SWTPM (emulatore software, non chip fisico).
 - **Revoca dei certificati** non è implementata via CRL/OCSP; la revoca è gestita a livello di policy OPA.
 
----
+**Versione:** 1.0.0
 
-## Licenza
-
-Distribuito sotto licenza **MIT**. Vedi il file `LICENSE` per maggiori dettagli.
-
----
-
-
-**Versione**: 1.0.0
-**Ultimo aggiornamento**: 2026-06-28
+**Ultimo aggiornamento:** 2026-06-30

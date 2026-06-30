@@ -16,5 +16,6 @@ docker compose version >/dev/null 2>&1 || {
 }
 
 docker compose --profile testing down --volumes --remove-orphans
+bash "$PROJECT_ROOT/scripts/init_runtime.sh"
 printf 'Container, reti e volumi runtime del progetto rimossi.\n'
 printf 'I certificati locali non sono stati eliminati.\n'

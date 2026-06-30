@@ -32,9 +32,9 @@
 
 # Rileva pacchetti ICMP utilizzati per verificare Snort e Splunk.
 
-# NOTA: ZTA-MVP-001 e ZTA-MVP-002 sono regole diagnostiche che generano
-# un volume elevato di alert in ambienti operativi. Sono disabilitate per default
-# e possono essere riattivate temporaneamente per verificare la pipeline IDS-Splunk.
+# ZTA-MVP-001 e ZTA-MVP-002 sono regole diagnostiche disabilitate per evitare
+# un volume elevato di segnalazioni. Possono essere abilitate durante una
+# verifica controllata della pipeline IDS-Splunk.
 # alert icmp any any -> any any (msg:"[ZTA-MVP-001] INTRUDER PING DETECTED"; sid:999901; rev:2;)
 # Versione con ambito limitato: solo ICMP da reti esterne verso HOME_NET.
 alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"[ZTA-MVP-001] ICMP FROM EXTERNAL NET"; sid:999901; rev:3;)

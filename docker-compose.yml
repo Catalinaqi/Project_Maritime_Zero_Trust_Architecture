@@ -182,12 +182,10 @@ services:
     container_name: firewall_perimeter
     hostname: nft-firewall
     restart: unless-stopped
-    # Logic migrated to the entry point - Docker Compose does not support it.
-    # 1-> interface_name: zt0 -> 172.20.2.10
-    # 2-> interface_name: monitor0 -> 172.20.4.10
-    # 3-> interface_name: corp0 -> 172.20.10.10
-    # 4-> interface_name: vpn0 -> 172.20.11.10
-    # 5-> interface_name: public0 -> 172.20.12.10
+    # L'entrypoint assegna nomi deterministici alle interfacce perché Compose
+    # non consente di definirli direttamente per ogni collegamento di rete.
+    # zt0=172.20.2.10, monitor0=172.20.4.10, corp0=172.20.10.10,
+    # vpn0=172.20.11.10, satellite0=172.20.12.10, public0=172.20.13.10.
     networks:
       zerotrust_net:
         ipv4_address: 172.20.2.10

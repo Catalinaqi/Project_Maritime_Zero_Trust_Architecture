@@ -1,5 +1,5 @@
 #!/bin/bash
-# Genera la chiave TPM persistente e la CSR legacy per un dispositivo demo.
+# Genera una chiave TPM persistente e la CSR nel formato di compatibilità.
 set -euo pipefail
 
 : "${USER_ID:?USER_ID non definito}"
