@@ -225,7 +225,8 @@ command:
 - **Default deny**: tutte le richieste non esplicitamente autorizzate vengono negate.
 - **ABAC**: l'autorizzazione valuta utente, dispositivo, rete, risorsa, comando, orario e risk score.
 - **Binding esplicito**: solo coppie utente‑dispositivo registrate nella matrice `identity_bindings.conf` possono operare.
-- **Risk score dinamico**: OPA interroga Splunk per ottenere il rischio corrente.
+- **Risk score dinamico**: OPA legge il documento JSON aggiornato
+  periodicamente da Splunk tramite un'azione della saved search.
 
 ---
 
@@ -352,8 +353,12 @@ Una saved search Splunk eseguita ogni 60 secondi calcola il risk score combinand
 - Decision log OPA (conteggio deny)
 - Alert Snort (conteggio eventi)
 - Unicità delle sorgenti
+- Baseline degli utenti configurati
 
-Il risultato viene scritto in `risk_scores.json` (montato in `/opa_data/risk_data/`) che OPA legge al ciclo successivo.
+La baseline garantisce che `operatore_ancona`, `capitano_claudia`, `soc_admin`
+e `intruso` restino sempre presenti nel lookup, anche senza eventi negli ultimi
+cinque minuti. Il risultato viene scritto in `risk_scores.json` (montato in
+`/opa_data/risk_data/`) che OPA legge al ciclo successivo.
 
 ### Dashboard
 

@@ -100,7 +100,7 @@ binder = {
 -- 5. OUTPUT JSON PER SPLUNK
 -- =============================================================================
 --
--- Le alert vengono salvate nel file:
+-- Gli alert vengono salvati nel file:
 --
 -- /var/log/snort/alert_json.txt
 --

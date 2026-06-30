@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 # =============================================================================
-# DEFINIZIONE VARIABILI E COLORI
+# DEFINIZIONE DELLE VARIABILI E DEI COLORI
 # =============================================================================
 RULES_SOURCE="/etc/nftables/rules.nft"
 RULES_RENDERED="/tmp/rules-rendered.nft"
@@ -14,10 +14,10 @@ ULOGD_PID_FILE="/run/ulogd.pid"
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m' # Ripristino del colore predefinito.
 
 # =============================================================================
-# FUNZIONI DI LOGGING
+# FUNZIONI DI LOG
 # =============================================================================
 log_info()  { echo -e "${GREEN}[Entrypoint-NFTABLES] [INFO]${NC}  $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
 log_warn()  { echo -e "${YELLOW}[Entrypoint-NFTABLES] [WARN]${NC}  $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
@@ -29,7 +29,7 @@ fail() {
 }
 
 # =============================================================================
-# FUNZIONI DI SUPPORTO E CLEANUP
+# FUNZIONI DI SUPPORTO E ARRESTO
 # =============================================================================
 cleanup() {
   if [[ -n "${FORWARD_LOGS_PID:-}" ]]; then
@@ -44,10 +44,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # =============================================================================
-# EXECUTION STEPS
+# SEQUENZA DI AVVIO
 # =============================================================================
 
-log_info "[STEP-1] Start - Verificando i comandi di sistema richiesti"
+log_info "[FASE-1] Verifica dei comandi di sistema richiesti"
 command -v nft >/dev/null 2>&1 || fail "Comando nft non disponibile"
 command -v envsubst >/dev/null 2>&1 || fail "Comando envsubst non disponibile"
 command -v ulogd >/dev/null 2>&1 || fail "Comando ulogd non disponibile"
@@ -60,7 +60,7 @@ command -v awk >/dev/null 2>&1 || fail "Comando awk non disponibile"
 mkdir -p "${LOG_DIR}" /run
 
 
-log_info "[STEP-2] Start - Validating NFTables environment variables"
+log_info "[FASE-2] Validazione delle variabili d'ambiente NFTables"
 required_variables=(
   NFTABLES_ENVOY_IP
   NFTABLES_FW_CORPORATE_IP
@@ -79,13 +79,13 @@ for variable in "${required_variables[@]}"; do
 done
 
 
-log_info "[STEP-3] Start - Rinomina dinamica delle interfacce di rete (Docker Compose workaround)"
+log_info "[FASE-3] Assegnazione dei nomi alle interfacce di rete"
 
 rename_interface_by_ip() {
   local target_ip=$1
   local new_name=$2
 
-  # Trova l'interfaccia (ethX) che possiede l'IP specificato
+  # Individua l'interfaccia Docker associata all'indirizzo configurato.
   local current_name=$(ip -4 -o addr show | awk -v ip="$target_ip" '$4 ~ "^"ip"/" {print $2}')
 
   if [[ -n "$current_name" && "$current_name" != "$new_name" ]]; then
@@ -100,7 +100,7 @@ rename_interface_by_ip() {
   fi
 }
 
-# Usa le variabili pre-validate per rinominare le interfacce assegnate da Compose
+# Applica i nomi previsti alle interfacce assegnate da Compose.
 rename_interface_by_ip "172.20.2.10" "zt0"
 rename_interface_by_ip "172.20.4.10" "monitor0"
 rename_interface_by_ip "${NFTABLES_FW_CORPORATE_IP}" "corp0"
@@ -111,7 +111,7 @@ rename_interface_by_ip "${NFTABLES_FW_PUBLIC_IP}" "public0"
 log_info "Interfacce di rete rinominate con successo."
 
 
-log_info "[STEP-4] Start - Rendering delle regole NFTables (sostituzione variabili)"
+log_info "[FASE-4] Generazione del ruleset NFTables"
 # Elimina eventuali terminatori CRLF introdotti da Windows e sostituisce solo
 # le variabili esplicitamente autorizzate, evitando sostituzioni accidentali.
 tr -d '\r' < "${RULES_SOURCE}" \
@@ -123,13 +123,13 @@ if grep -q '\${' "${RULES_RENDERED}"; then
 fi
 
 
-log_info "[STEP-5] Start - Validazione e caricamento regole NFTables"
+log_info "[FASE-5] Validazione e caricamento del ruleset NFTables"
 nft -c -f "${RULES_RENDERED}" || fail "Sintassi NFTables non valida nel file renderizzato"
 nft -f "${RULES_RENDERED}" || fail "Caricamento delle regole NFTables fallito nel kernel"
 nft list table ip filter >/dev/null 2>&1 || fail "Tabella NFTables 'ip filter' assente dopo il caricamento"
 
 
-log_info "[STEP-6] Start - Configurazione e avvio del demone ulogd (NFLOG)"
+log_info "[FASE-6] Configurazione e avvio del servizio ulogd (NFLOG)"
 # Debian installa i plugin ulogd in una directory dipendente dall'architettura.
 ULOGD_PLUGIN_DIR="$(find /usr/lib -type f -name 'ulogd_inppkt_NFLOG.so' -printf '%h\n' -quit)"
 [[ -n "${ULOGD_PLUGIN_DIR}" ]] || fail "Plugin NFLOG di ulogd non trovato nel sistema"
@@ -162,7 +162,7 @@ sleep 1
 kill -0 "$(cat "${ULOGD_PID_FILE}")" >/dev/null 2>&1 || fail "Il demone ulogd non è in esecuzione"
 
 
-log_info "[STEP-7] Start - Inizializzazione modulo di inoltro log (Splunk HEC)"
+log_info "[FASE-7] Avvio dell'inoltro dei log verso Splunk HEC"
 forward_logs() {
   local hec_url="${NFTABLES_SPLUNK_HEC_URL:-}"
   local hec_token="${NFTABLES_SPLUNK_HEC_TOKEN:-}"
@@ -196,7 +196,7 @@ forward_logs &
 FORWARD_LOGS_PID=$!
 
 
-log_info "[STEP-8] Completato - Firewall caricato correttamente. Avvio loop di monitoraggio ruleset."
+log_info "[FASE-8] Firewall configurato; avvio del monitoraggio del ruleset"
 while sleep 60; do
   if ! nft list table ip filter >/dev/null 2>&1; then
     log_error "Ruleset assente (possibile flush accidentale)! Tentativo di ripristino in corso..."

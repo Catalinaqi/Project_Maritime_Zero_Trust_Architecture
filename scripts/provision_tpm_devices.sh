@@ -21,7 +21,7 @@ fail() {
   exit 1
 }
 
-# Arresta i TPM temporanei e rimuove i file di configurazione provvisori.
+# Arresta le istanze SWTPM usate dal provisioning e rimuove i file temporanei.
 cleanup() {
   docker compose --profile testing stop \
     swtpm_d001 swtpm_d002 swtpm_dsoc >/dev/null 2>&1 || true

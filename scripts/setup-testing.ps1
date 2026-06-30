@@ -181,6 +181,9 @@ try {
     Write-Step "Preparazione del file .env"
     Initialize-Environment
 
+    Write-Step "Inizializzazione dei dati runtime"
+    Invoke-BashScript -Bash $Bash -Script "scripts/init_runtime.sh"
+
     Write-Step "Validazione della configurazione Docker Compose"
     Invoke-Checked docker compose --profile testing config --quiet
 

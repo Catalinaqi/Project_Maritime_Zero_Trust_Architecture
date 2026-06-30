@@ -1,4 +1,4 @@
-// Popola il database dimostrativo al primo avvio del volume MongoDB.
+// Popola il dataset iniziale al primo avvio del volume MongoDB.
 const databaseName = process.env.MONGO_DATABASE || "maritime_zta";
 db = db.getSiblingDB(databaseName);
 

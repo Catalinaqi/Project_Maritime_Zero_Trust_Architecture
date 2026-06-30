@@ -9,7 +9,9 @@ cd "$PROJECT_ROOT" || exit 1
 start_base_services
 start_testing_clients
 wait_for_opa || print_summary
-set_static_risk_scores_baseline
+pause_dynamic_risk_updates || exit 1
+trap 'resume_dynamic_risk_updates >/dev/null 2>&1' EXIT
+set_static_risk_scores_baseline || exit 1
 
 print_section "mTLS e policy deny"
 run_plain_tls_test "mTLS FAIL: richiesta senza certificato client" \

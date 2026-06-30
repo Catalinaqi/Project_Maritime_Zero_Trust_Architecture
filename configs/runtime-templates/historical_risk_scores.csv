@@ -1,2 +1,5 @@
 "user_id","risk_score",isAnomaly,"denied_count","unique_sources","snort_alert_count","snort_critical_count","last_snort_rule","last_snort_message","device_id","trust_level","updated_at"
-"soc_admin",10,0,1,1,0,0,,,,,1782663720
+"operatore_ancona",10,0,0,0,0,0,,,,,0
+"capitano_claudia",10,0,0,0,0,0,,,,,0
+"soc_admin",10,0,0,0,0,0,,,,,0
+"intruso",90,1,8,0,0,0,,,,,0

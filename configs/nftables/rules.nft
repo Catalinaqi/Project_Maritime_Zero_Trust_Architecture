@@ -12,7 +12,7 @@
 # riconoscere vpn_net, satellite_net, corporate_net o public_net.
 # =============================================================================
 
-# Elimina tutte le vecchie regole.
+# Rimuove il ruleset preesistente prima di applicare la configurazione.
 flush ruleset
 
 

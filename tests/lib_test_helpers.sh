@@ -8,6 +8,7 @@ TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
 SKIPPED_TESTS=0
+RISK_UPDATER_SAVED_SEARCH="Calcolo%20Dinamico%20Risk%20Score%20OPA"
 
 compose() {
   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" docker compose --profile testing "$@"
@@ -146,6 +147,50 @@ run_splunk_search_json() {
     '
 }
 
+set_dynamic_risk_updates() {
+  local requested_state="$1"
+  local action password
+
+  case "$requested_state" in
+    enabled) action="enable" ;;
+    disabled) action="disable" ;;
+    *)
+      printf '[ERRORE] Stato aggiornamento rischio non valido: %s\n' "$requested_state" >&2
+      return 1
+      ;;
+  esac
+
+  password="$(read_env_value SPLUNK_PASSWORD)"
+  if [ -z "$password" ]; then
+    printf '[ERRORE] SPLUNK_PASSWORD non definita nel file .env.\n' >&2
+    return 1
+  fi
+
+  compose exec -T \
+    -e SPLUNK_TEST_PASSWORD="$password" \
+    -e SPLUNK_RISK_ACTION="$action" \
+    -e SPLUNK_RISK_SEARCH="$RISK_UPDATER_SAVED_SEARCH" \
+    siem_central sh -lc '
+      curl -kfsS --max-time 20 -X POST \
+        -u "admin:${SPLUNK_TEST_PASSWORD}" \
+        "https://localhost:8089/servicesNS/nobody/opa_risk_updater/saved/searches/${SPLUNK_RISK_SEARCH}/${SPLUNK_RISK_ACTION}" \
+        >/dev/null
+    '
+}
+
+pause_dynamic_risk_updates() {
+  print_section "Sospensione aggiornamento dinamico del rischio"
+  wait_for_splunk_search_api || return 1
+  set_dynamic_risk_updates disabled || return 1
+
+  # Consente a un'eventuale esecuzione già avviata di terminare prima del reset.
+  sleep 2
+}
+
+resume_dynamic_risk_updates() {
+  set_dynamic_risk_updates enabled
+}
+
 extract_splunk_stat() {
   local field="$1"
   sed -n "s/.*\"${field}\":\"\([0-9][0-9]*\)\".*/\1/p" | tail -n 1
@@ -271,32 +316,25 @@ run_missing_cert_test() {
 
 set_static_risk_scores_baseline() {
   print_section "Ripristino risk score bassi"
-  cat > "$PROJECT_ROOT/configs/opa/data/risk_data/risk_scores.json" <<'JSON'
-{
-  "capitano_claudia": {
-    "denied_count": 0,
-    "is_anomaly": false,
-    "risk_score": 10
-  },
-  "intruso": {
-    "denied_count": 8,
-    "is_anomaly": true,
-    "risk_score": 90
-  },
-  "operatore_ancona": {
-    "denied_count": 0,
-    "is_anomaly": false,
-    "risk_score": 10
-  },
-  "soc_admin": {
-    "denied_count": 0,
-    "is_anomaly": false,
-    "risk_score": 10
-  }
-}
-JSON
+  cp "$PROJECT_ROOT/configs/runtime-templates/risk_scores.json" \
+    "$PROJECT_ROOT/configs/opa/data/risk_data/risk_scores.json"
   compose restart pdp_engine >/dev/null
-  wait_for_opa >/dev/null
+  wait_for_opa >/dev/null || return 1
+
+  local user_id expected actual
+  while IFS='|' read -r user_id expected; do
+    actual="$(get_opa_risk_score "$user_id")"
+    if [ "$actual" != "$expected" ]; then
+      printf '[ERRORE] Baseline OPA non applicata per %s: valore %s, atteso %s.\n' \
+        "$user_id" "${actual:-non disponibile}" "$expected" >&2
+      return 1
+    fi
+  done <<'RISK_BASELINE'
+operatore_ancona|10
+capitano_claudia|10
+soc_admin|10
+intruso|90
+RISK_BASELINE
 }
 
 get_opa_risk_score() {
@@ -321,18 +359,6 @@ send_splunk_hec_event() {
     -H "Authorization: Splunk ${token}" \
     -H "Content-Type: application/json" \
     -d "{\"source\":\"${source}\",\"sourcetype\":\"${sourcetype}\",\"event\":${event_json}}" >/dev/null
-}
-
-print_summary_audit() {
-  local pass_count="$1"
-  local fail_count="$2"
-  local total=$((pass_count + fail_count))
-  printf '\n== Riepilogo Audit ==\n'
-  printf 'Totali: %d | OK: %d | Falliti: %d | Saltati: 0\n' \
-    "$total" "$pass_count" "$fail_count"
-  if [ "$fail_count" -gt 0 ]; then
-    exit 1
-  fi
 }
 
 print_summary() {

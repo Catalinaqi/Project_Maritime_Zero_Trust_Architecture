@@ -1,6 +1,6 @@
 # Script – Maritime Zero Trust Architecture
 
-Questa directory contiene tutti gli script necessari per la generazione della
+La directory `scripts/` contiene tutti gli script necessari per la generazione della
 PKI, il provisioning delle identità TPM, la verifica preliminare, l'avvio e la
 pulizia dell'ambiente di test. Ogni script è documentato qui con il proprio
 ruolo all'interno del modello **Never Trust, Always Verify**.
@@ -13,10 +13,10 @@ scripts/
 ├── generate_device_certs.sh         # Certificati utente-dispositivo con TPM
 ├── provision_tpm_devices.sh         # Provisioning TPM (legacy, tre device fissi)
 ├── identity_bindings.testing.conf   # Matrice identità per testing (setup-testing.ps1)
+├── init_runtime.sh                  # Ripristino dati runtime dai template
 ├── preflight.sh                     # Verifica prerequisiti e certificati
 ├── clean_runtime.sh                 # Arresto stack e rimozione volumi runtime
-├── setup-testing.ps1                # Preparazione automatica su Windows
-└── README_SCRIPTS.md                # Questo file
+└── setup-testing.ps1                # Preparazione automatica su Windows
 ```
 
 ---
@@ -111,7 +111,7 @@ certs/devices/{device_id}/identities/{user_id}/
 
 ---
 
-## 3. `provision_tpm_devices.sh` – Provisioning TPM (Legacy)
+## 3. `provision_tpm_devices.sh` – Provisioning TPM di compatibilità
 
 ### Scopo
 
@@ -159,7 +159,23 @@ USER_ID|DEVICE_ID|CLIENT_SERVICE|TPM_HANDLE|DEVICE_LOCATION|NETWORK_NAME
 
 ---
 
-## 5. `preflight.sh` – Verifica Preliminare
+## 5. `init_runtime.sh` – Inizializzazione Runtime
+
+### Scopo
+
+Copia le baseline versionate da `configs/runtime-templates/` nei percorsi
+mutabili usati da OPA e Splunk. I file generati sono ignorati da Git, quindi
+l'esecuzione dei test non modifica lo stato del repository.
+
+### Utilizzo
+
+```bash
+bash scripts/init_runtime.sh
+```
+
+---
+
+## 6. `preflight.sh` – Verifica Preliminare
 
 ### Scopo
 
@@ -176,6 +192,8 @@ Controlla che tutti i prerequisiti siano soddisfatti prima di avviare lo stack.
      `healthcheck-client.pem` – certificati MongoDB
    - `configs/envoy/mongo_inspector_active.lua` – filtro Lua
    - `configs/opa/policies/authorization.rego` – policy OPA
+   - `configs/opa/data/risk_data/risk_scores.json` – stato runtime OPA
+   - `configs/splunk/apps/opa_risk_updater/lookups/historical_risk_scores.csv` – lookup runtime Splunk
 2. **Docker Compose**: versione >= 2.36.0.
 3. **Validazione Compose**: `docker compose config --quiet`.
 
@@ -188,7 +206,7 @@ Esce con codice 1 in caso di errori.
 
 ---
 
-## 6. `clean_runtime.sh` – Pulizia Runtime
+## 7. `clean_runtime.sh` – Pulizia Runtime
 
 ### Scopo
 
@@ -200,6 +218,8 @@ runtime creati durante l'esecuzione.
 - Container con profilo `testing`.
 - Reti Docker create da Compose.
 - Volumi Docker (inclusi quelli TPM e dei log).
+
+Al termine ripristina anche i dati runtime dai template versionati.
 
 ### Cosa NON rimuove
 
@@ -214,7 +234,7 @@ bash scripts/clean_runtime.sh
 
 ---
 
-## 7. `setup-testing.ps1` – Preparazione Automatica (Windows)
+## 8. `setup-testing.ps1` – Preparazione Automatica (Windows)
 
 ### Scopo
 
@@ -224,14 +244,15 @@ comando. Esegue in sequenza:
 1. **Controllo prerequisiti**: Docker Desktop, Docker Compose, Git Bash.
 2. **Creazione `.env`**: se mancante, parte da `.env.example` con credenziali
    dimostrative e token HEC univoco.
-3. **Validazione Compose**: `docker compose --profile testing config --quiet`.
-4. **Generazione PKI infrastrutturale**: se i certificati non esistono già,
+3. **Inizializzazione runtime**: ripristina risk score e lookup dai template.
+4. **Validazione Compose**: `docker compose --profile testing config --quiet`.
+5. **Generazione PKI infrastrutturale**: se i certificati non esistono già,
    esegue `bash scripts/generate_certs.sh`.
-5. **Provisioning TPM**: esegue `bash scripts/generate_device_certs.sh` con
+6. **Provisioning TPM**: esegue `bash scripts/generate_device_certs.sh` con
    `BINDINGS_FILE=scripts/identity_bindings.testing.conf`.
-6. **Preflight**: esegue `bash scripts/preflight.sh`.
-7. **Avvio stack**: `docker compose --profile testing up -d --build`.
-8. **Attesa healthcheck**: per ogni servizio, attende fino a 360 secondi
+7. **Preflight**: esegue `bash scripts/preflight.sh`.
+8. **Avvio stack**: `docker compose --profile testing up -d --build`.
+9. **Attesa healthcheck**: per ogni servizio, attende fino a 360 secondi
    (720 per Splunk).
 
 ### Parametri
@@ -250,8 +271,9 @@ comando. Esegue in sequenza:
 - **Ordine di esecuzione consigliato**:
   1. `bash scripts/generate_certs.sh`
   2. `bash scripts/generate_device_certs.sh` (o `provision_tpm_devices.sh`)
-  3. `bash scripts/preflight.sh`
-  4. `docker compose up -d --build`
+  3. `bash scripts/init_runtime.sh`
+  4. `bash scripts/preflight.sh`
+  5. `docker compose up -d --build`
 
 - Su Windows, usare `setup-testing.ps1` per automatizzare tutti i passaggi.
 
@@ -260,4 +282,4 @@ comando. Esegue in sequenza:
   certificati.
 
 - I certificati generati NON devono essere versionati. La directory `certs/`
-  contiene solo file `.gitkeep` nel repository.
+  esiste soltanto localmente ed è ignorata interamente da Git.

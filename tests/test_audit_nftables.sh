@@ -1,20 +1,18 @@
 #!/bin/bash
-# =============================================================================
-# MARITIME ZTA - AUDIT DEL FIREWALL PERIMETRALE (NFTABLES)
-# File: test_audit_nftables.sh
-# =============================================================================
+# Verifica il ruleset NFTables, il DNAT verso Envoy e l'isolamento tra reti.
 export MSYS_NO_PATHCONV=1
-#source ./config_audit.sh
 source "$(dirname "$0")/config_audit.sh"
 source "$(dirname "$0")/lib_test_helpers.sh"
 
 start_base_services
 start_testing_clients
 wait_for_opa || print_summary
-set_static_risk_scores_baseline
+pause_dynamic_risk_updates || exit 1
+trap 'resume_dynamic_risk_updates >/dev/null 2>&1' EXIT
+set_static_risk_scores_baseline || exit 1
 
 
-# Inizializza il file di report
+# Inizializza il report dell'esecuzione.
 echo "=======================================================================" > "$REPORT_FILE_NFTABLES"
 echo " MARITIME ZTA - RAPPORTO TEST FIREWALL NFTABLES" >> "$REPORT_FILE_NFTABLES"
 echo " Ora di inizio: $(date '+%Y-%m-%d %H:%M:%S')" >> "$REPORT_FILE_NFTABLES"
@@ -34,7 +32,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; echo "[WARN] $1" >> "$REPORT_FIL
 pre_checks() {
     local all_ok=true
 
-    # Container in esecuzione
+    # Verifica la disponibilità dei container richiesti.
     for c in "$FW_CONTAINER" "$CLIENT_D001" "$CLIENT_D002" "$CLIENT_DSOC"; do
         if ! docker ps --format '{{.Names}}' | grep -q "^${c}$"; then
             log_fail "Container '$c' non in esecuzione. Impossibile proseguire."
@@ -42,7 +40,7 @@ pre_checks() {
         fi
     done
 
-    # IP Forwarding
+    # Verifica l'abilitazione dell'inoltro IPv4.
     local ip_fwd
     ip_fwd=$(docker exec "$FW_CONTAINER" cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "0")
     if [[ "$ip_fwd" != "1" ]]; then
@@ -50,13 +48,13 @@ pre_checks() {
         log_warn "Attiva con: docker exec $FW_CONTAINER sysctl -w net.ipv4.ip_forward=1"
     fi
 
-    # Ping disponibile?
+    # Verifica la disponibilità del comando ping nei client.
     if ! docker exec "$CLIENT_D001" which ping &>/dev/null; then
         log_warn "ping non installato nei container client. Il test ICMP sarà ignorato."
         export PING_MISSING=true
     fi
 
-    # Reset contatori nftables
+    # Azzera i contatori per isolare le misure dell'esecuzione corrente.
     docker exec "$FW_CONTAINER" nft reset counters table ip filter 2>/dev/null || true
     docker exec "$FW_CONTAINER" nft reset counters table ip nat 2>/dev/null || true
     log_info "Contatori nftables resettati."
@@ -85,19 +83,24 @@ test_connection() {
 
     echo -e "${CYAN}[TEST]${NC} $desc..."
 
-    # 1. CATTURA LO STATO "PRIMA"
-    # Contiamo quanti pacchetti hanno attraversato la catena FORWARD verso Envoy prima del test
+    # Acquisisce il contatore FORWARD precedente al test.
     local pkts_before=0
     if [[ "$test_type" == "dnat" ]]; then
-        pkts_before=$(docker exec "$FW_CONTAINER" nft list chain ip filter forward 2>/dev/null | grep "ip daddr ${ENVOY_IP} tcp dport ${ENVOY_PORT}" | grep -oP 'packets \K\d+' | awk '{s+=$1} END {print s+0}')
+        pkts_before=$(docker exec "$FW_CONTAINER" nft list chain ip filter forward 2>/dev/null | awk -v ip="$ENVOY_IP" -v port="$ENVOY_PORT" '
+            $0 ~ "ip daddr " ip && $0 ~ "tcp dport " port {
+                for (i = 1; i <= NF; i++) if ($i == "packets") total += $(i + 1)
+            }
+            END { print total + 0 }
+        ')
     fi
 
-    # 2. ESEGUI IL TEST (Potrebbe andare in timeout a causa del routing asimmetrico)
+    # Esegue il tentativo di connessione con un timeout controllato.
     local raw_output
     raw_output=$(docker exec -t "$container" timeout "$timeout" bash -c \
         "echo > /dev/tcp/$dest_ip/$dest_port 2>&1; echo EXIT:\$?" 2>/dev/null)
-    local exit_code=$(echo "$raw_output" | grep -oP 'EXIT:\K\d+' || echo "124")
-    exit_code=${exit_code:-124}
+    local exit_code
+    exit_code=$(printf '%s\n' "$raw_output" | sed -n 's/.*EXIT:\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+    exit_code="${exit_code:-124}"
 
     local actual
     case $exit_code in
@@ -114,16 +117,19 @@ test_connection() {
         [[ "$actual" == "timeout" || "$actual" == "refused" ]] && test_passed=true
     fi
 
-    # Verifica supplementare DNAT (commentata)
-    # Sezione commentata: non rimuovere, può essere riattivata in futuro
-
-    # 3. CATTURA LO STATO "DOPO" E CONFRONTA
+    # Confronta il contatore FORWARD dopo il tentativo DNAT.
     if [[ "$test_type" == "dnat" && "$actual" != "allow" ]]; then
-        local pkts_after=$(docker exec "$FW_CONTAINER" nft list chain ip filter forward 2>/dev/null | grep "ip daddr ${ENVOY_IP} tcp dport ${ENVOY_PORT}" | grep -oP 'packets \K\d+' | awk '{s+=$1} END {print s+0}')
+        local pkts_after
+        pkts_after=$(docker exec "$FW_CONTAINER" nft list chain ip filter forward 2>/dev/null | awk -v ip="$ENVOY_IP" -v port="$ENVOY_PORT" '
+            $0 ~ "ip daddr " ip && $0 ~ "tcp dport " port {
+                for (i = 1; i <= NF; i++) if ($i == "packets") total += $(i + 1)
+            }
+            END { print total + 0 }
+        ')
 
         if (( pkts_after > pkts_before )); then
-            # Se il contatore è aumentato, il firewall ha inoltrato correttamente
-            log_ok "$desc → INOLTRO RILEVATO (Counter FORWARD incrementato: $pkts_before -> $pkts_after). Asimmetria superata."
+            # Un incremento conferma che il firewall ha inoltrato il traffico.
+            log_ok "$desc → inoltro rilevato (contatore FORWARD: $pkts_before -> $pkts_after)"
             return 0
         fi
     fi
@@ -152,7 +158,7 @@ check_fw_log() {
         count=$(docker exec "$FW_CONTAINER" sh -c \
             "cat '$NFT_LOG_FILE' | tr -d '\r' | grep -cF '$expected_prefix'" 2>/dev/null || echo 0)
         count="${count:-0}"
-        count=$(echo "$count" | tr -d '\n' | xargs)  # pulisce newline
+        count=$(echo "$count" | tr -d '\n' | xargs)  # Normalizza l'output numerico.
         if [[ $count -ge $min_lines ]]; then
             log_ok "Log NFTables: trovate $count righe con '$expected_prefix'"
             return 0
@@ -175,10 +181,8 @@ docker exec "$FW_CONTAINER" truncate -s 0 "$NFT_LOG_FILE" 2>/dev/null || true
 sleep 1
 
 # =============================================================================
-# TEST 1: Traffico permesso client -> Envoy (DNAT + FORWARD ACCEPT)
-# NOTA: test_type="dnat" per attivare la verifica dei contatori DNAT.
-# NAT Prerouting -> Reindirizzamento delle porte (8443) a Envoy
-# Filter Forward -> Permettere il traffico verso Envoy
+# TEST 1: traffico client verso Envoy tramite DNAT e FORWARD.
+# Il tipo "dnat" abilita anche la verifica dei contatori di inoltro.
 # =============================================================================
 header "1. TRAFFICO PERMESSO: CLIENT → ENVOY (DNAT + FORWARD ACCEPT)"
 test_connection "$CLIENT_D001" "VPN -> Envoy via FW (8443)" "$FW_VPN_IP" "$ENVOY_PORT" "allow" 5 "dnat"
@@ -186,8 +190,7 @@ test_connection "$CLIENT_D002" "Satellite -> Envoy via FW (8443)" "$FW_SATELLITE
 test_connection "$CLIENT_DSOC" "Corporate -> Envoy via FW (8443)" "$FW_CORPORATE_IP" "$ENVOY_PORT" "allow" 5 "dnat"
 
 # =============================================================================
-# TEST 2: Blocco input – firewall non deve rispondere su porte interne
-#Filter Input -> Proteggere il SO del Firewall
+# TEST 2: blocco delle connessioni dirette alle porte interne del firewall.
 # =============================================================================
 header "2. BLOCCAGGIO INPUT: CONNESSIONI AL FIREWALL SU PORTE NON ABILITATE"
 test_connection "$CLIENT_D001" "VPN -> Firewall:27017 (Mongo)" "$FW_VPN_IP" "$MONGO_PORT" "deny"
@@ -199,52 +202,25 @@ check_fw_log "[NFT-INPUT-DROP]" 1
 
 
 # =============================================================================
-# INIEZIONE DI ROTTE STATICHE (Forza il traffico inter-reti attraverso il Firewall)
-# =============================================================================
-
-# caso 1: (più semplice, ma meno sicuro)
-#log_info "Iniettando rotte statiche nei client per forzare il passaggio dal firewall..."
-#docker exec "$CLIENT_D001" ip route add "$CLIENT_D002_IP" via "$FW_VPN_IP" 2>/dev/null || true
-#docker exec "$CLIENT_D002" ip route add "$CLIENT_D001_IP" via "$FW_SATELLITE_IP" 2>/dev/null || true
-
-# caso 2: (più sicuro, ma richiede iproute2 nei client)
-#if docker exec "$CLIENT_D002" which ip &>/dev/null; then
-#    log_info "Iniettando rotte statiche nei client per forzare il log del Firewall..."
-#    docker exec "$CLIENT_D001" ip route add "$CLIENT_D002_IP" via "$FW_VPN_IP" 2>/dev/null || true
-#    docker exec "$CLIENT_D002" ip route add "$CLIENT_D001_IP" via "$FW_SATELLITE_IP" 2>/dev/null || true
-#else
-#    log_warn "Comando 'ip' non trovato nei client. Il test di log del Movimento Laterale darà [FAIL] a causa del routing interno di Docker (Bypass). Il Drop è comunque garantito da Docker stesso."
-#fi
-
-
-# =============================================================================
-# TEST 3: Movimento laterale VPN ↔ Satellite
-# Filter Forward -> Evitare movimento laterale
+# TEST 3: blocco del movimento laterale tra VPN e rete satellitare.
 # =============================================================================
 header "3. MOVIMENTO LATERALE: VPN ↔ SATELLITE (DEVE ESSERE BLOCCATO E LOGGATO)"
 test_connection "$CLIENT_D001" "VPN -> Satellite (cliente a cliente)" "$CLIENT_D002_IP" "8443" "deny"
 test_connection "$CLIENT_D002" "Satellite -> VPN (cliente a cliente)" "$CLIENT_D001_IP" "8443" "deny"
 
-# Docker host intercetta il traffico inter-rete prima del firewall (isolamento nativo).
-# I timeout sopra confermano il blocco. Ignoriamo la ricerca dei log per evitare falsi FAIL.
-# check_fw_log "[NFT-LATERAL-VPN-SAT]" 1
-# check_fw_log "[NFT-LATERAL-SAT-VPN]" 1
+# Docker applica anche il proprio isolamento inter-rete. Il timeout costituisce
+# l'evidenza del blocco anche quando il pacchetto non raggiunge NFTables.
 
 # =============================================================================
-# TEST 4: Regola di default FORWARD
-# Filter Forward -> Evitare movimento laterale
+# TEST 4: policy predefinita della catena FORWARD.
 # =============================================================================
 header "4. REGOLA DI DEFAULT FORWARD"
 test_connection "$CLIENT_D001" "VPN -> Satellite porta 22 (ssh)" "$CLIENT_D002_IP" "22" "deny"
-# NOTA ZERO TRUST: Il demone Docker scarta nativamente il traffico inter-rete (Porta 22)
-# prima che raggiunga l'interfaccia del firewall. Il 'timeout' conferma che la rete
-# è sicura. Disabilitiamo il check del log per evitare un falso [FAIL].
-# check_fw_log "[NFT-FORWARD-DROP]" 1
-# check_fw_log "[NFT-FORWARD-DROP]" 1
+# Il timeout conferma il blocco; Docker può scartare il traffico prima che il
+# pacchetto raggiunga la catena NFTables e produca un record di log.
 
 # =============================================================================
-# TEST 5: ICMP verso il firewall (se ping disponibile)
-#Filter Input -> Proteggere il SO del Firewall
+# TEST 5: ICMP diagnostico verso il firewall.
 # =============================================================================
 header "5. ICMP VERSO IL FIREWALL (DEVE ESSERE PERMESSO)"
 if [[ -z "${PING_MISSING:-}" ]]; then
@@ -258,8 +234,7 @@ else
 fi
 
 # =============================================================================
-# TEST 6: Loopback del firewall
-#Filter Input -> Proteggere il SO del Firewall
+# TEST 6: funzionamento dell'interfaccia loopback del firewall.
 # =============================================================================
 header "6. LOOPBACK DEL FIREWALL"
 if docker exec "$FW_CONTAINER" timeout 1 bash -c 'echo > /dev/tcp/127.0.0.1/65535' 2>/dev/null || [ $? -eq 1 ]; then

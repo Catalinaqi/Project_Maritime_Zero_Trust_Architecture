@@ -31,6 +31,8 @@ check_file certs/mongodb/api-client.pem
 check_file certs/mongodb/healthcheck-client.pem
 check_file configs/envoy/mongo_inspector_active.lua
 check_file configs/opa/policies/authorization.rego
+check_file configs/opa/data/risk_data/risk_scores.json
+check_file configs/splunk/apps/opa_risk_updater/lookups/historical_risk_scores.csv
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   compose_version="$(docker compose version --short | sed 's/^v//')"

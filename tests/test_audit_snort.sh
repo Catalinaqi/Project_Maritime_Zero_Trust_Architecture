@@ -1,11 +1,6 @@
 #!/bin/bash
-# =============================================================================
-# MARITIME ZTA - AUDIT COMPLETO DI TUTTE LE CATEGORIE SNORT
-# File: test_audit_snort.sh
-# =============================================================================
+# Genera traffico controllato per verificare tutte le categorie di regole Snort.
 export MSYS_NO_PATHCONV=1
-
-#source ./config_audit.sh
 
 source "$(dirname "$0")/config_audit.sh"
 source "$(dirname "$0")/lib_test_helpers.sh"
@@ -13,7 +8,9 @@ source "$(dirname "$0")/lib_test_helpers.sh"
 start_base_services
 start_testing_clients
 wait_for_opa || print_summary
-set_static_risk_scores_baseline
+pause_dynamic_risk_updates || exit 1
+trap 'resume_dynamic_risk_updates >/dev/null 2>&1' EXIT
+set_static_risk_scores_baseline || exit 1
 
 echo "=======================================================================" > "$REPORT_FILE_SNORT"
 echo " MARITIME ZTA - RAPPORTO GLOBALE AUDIT DI SICUREZZA (REGOLE AGGIORNATE)" >> "$REPORT_FILE_SNORT"
@@ -53,27 +50,18 @@ fire_attack() {
 # =============================================================================
 header "CATEGORIA 0 - DIAGNOSTICA DELLA PIPELINE IDS"
 
-# Per far sì che Snort veda ICMP da EXTERNAL_NET, simuliamo un ping da un contenitore
-# che non appartenga a HOME_NET. Usiamo l'host (se è in 172.20.13.0/24) o
-# un contenitore speciale. Per semplicità, eseguiamo il ping dal client d001
-# ma modifichiamo l'IP sorgente? Non è possibile. Meglio usare l'IP del firewall
-# sulla rete public_net (172.20.13.10) se esiste. Altrimenti, proviamo con
-# l'IP di TARGET_VPN_IP (che è già in HOME_NET). La regola si aspetta EXTERNAL_NET,
-# quindi probabilmente non si attiverà. A scopo dimostrativo, includiamo l'attacco
-# per vedere che Snort esegue la regola anche se l'origine non corrisponde.
-fire_attack "client_d001_tpm" "Ping verso firewall da VPN (possibile falso positivo)" \
+# Questo stimolo verifica la pipeline ICMP. Il SID 999901 viene emesso soltanto
+# quando la sorgente è classificata come EXTERNAL_NET dalla configurazione IDS.
+fire_attack "client_d001_tpm" "Ping diagnostico verso il firewall dalla VPN" \
     "ping -c 2 ${TARGET_VPN_IP}" \
     "999901"
 
-# TCP SYN da EXTERNAL NET: usiamo un client e forziamo IP origine? No.
-# Omissione perché è complicato simulare una EXTERNAL_NET reale. Si può saltare.
-
-# Per MVP-003 (SQLi in chiaro) useremo curl GET con "union select" nell'URL.
+# Genera una richiesta SQLi in chiaro per la regola diagnostica 999903.
 fire_attack "client_d001_tpm" "Test SQLi (in chiaro) sulla porta PEP" \
     "curl -s --max-time 2 'http://${TARGET_VPN_IP}:${PORT_PEP}/?q=union%20select'" \
     "999903"
 
-# MVP-004: SYN verso MongoDB
+# Genera un SYN diretto alla porta MongoDB per la regola diagnostica 999904.
 fire_attack "client_d002_tpm" "SYN diretto a MongoDB" \
     "timeout 2 bash -c 'echo > /dev/tcp/${TARGET_VPN_IP}/${PORT_MONGO}'" \
     "999904"
@@ -149,9 +137,9 @@ fire_attack "client_d001_tpm" "Downgrade TLS 1.1 verso Envoy" \
     "curl -s --max-time 2 --tlsv1.1 https://${TARGET_VPN_IP}:${PORT_PEP}/ 2>/dev/null || true" \
     "1000017"
 
-fire_attack "client_d002_tpm" "Heartbeat TLS (simulato con curl?)" \
+fire_attack "client_d002_tpm" "Stimolo TLS per la regola Heartbeat" \
     "curl -s --max-time 2 --tls-max 1.2 https://${TARGET_SATELLITE_IP}:${PORT_PEP}/ 2>/dev/null; true" \
-    "1000014"   # Nota: l'heartbeat viene rilevato dal contenuto |18 03|, ma curl non lo invia. Solo prova di concetto.
+    "1000014"   # L'emissione del SID dipende dalla presenza del payload Heartbeat atteso.
 
 # =============================================================================
 # CATEGORIA 4 - INJECTION APPLICATIVE (SIDs 1000015, 1000018, 1000019)
@@ -175,8 +163,7 @@ fire_attack "client_d002_tpm" "Command Injection: cat /etc/passwd" \
 # =============================================================================
 header "CATEGORIA 5 - POSSIBILE ESFILTRAZIONE"
 
-# Per 1000020 (opcode MongoDB) dobbiamo inviare byte |d4 07 00 00|.
-# Usiamo printf e nc (supponendo che nc supporti input binario).
+# Invia la sequenza binaria prevista dalla regola 1000020 tramite netcat.
 fire_attack "client_d001_tpm" "Invio opcode MongoDB verso IP esterna" \
     "printf '\xd4\x07\x00\x00' | timeout 2 nc -w1 ${TARGET_VPN_IP} ${PORT_MONGO} 2>/dev/null; true" \
     "1000020"
@@ -190,8 +177,7 @@ fire_attack "client_d001_tpm" "500 connessioni verso esterno (alto volume)" \
 # =============================================================================
 header "CATEGORIA 6 - MOVIMENTO LATERALE TRA RETI"
 
-# Nota: le regole si aspettano traffico da una rete specifica verso un'altra.
-# I client devono essere nella rete di origine corretta.
+# Le regole dipendono dalla rete sorgente assegnata a ciascun client.
 
 fire_attack "client_d001_tpm" "Da VPN_NET verso BACKEND_NET" \
     "timeout 2 bash -c 'echo > /dev/tcp/172.20.3.10/3000' 2>/dev/null; true" \
@@ -203,10 +189,9 @@ fire_attack "client_d002_tpm" "Da SATELLITE_NET verso BACKEND_NET" \
 
 fire_attack "client_dsoc_tpm" "Da CORPORATE_NET verso BACKEND_NET (simulato)" \
     "timeout 2 bash -c 'echo > /dev/tcp/172.20.3.10/3000' 2>/dev/null; true" \
-    "N/A"   # Non esiste una regola esplicita per CORPORATE->BACKEND nel file, solo PUBLIC->BACKEND. Omissione.
+    "N/A"   # La configurazione non definisce un SID specifico per CORPORATE_NET verso BACKEND_NET.
 
-# Le regole 1000022-1000025 richiedono da PUBLIC_NET. Non abbiamo client in public_net.
-# La regola 1000026 richiede SATELLITE->CORPORATE, abbiamo client_d002 in satellite.
+# Il client D-002 consente di verificare il percorso SATELLITE_NET verso CORPORATE_NET.
 fire_attack "client_d002_tpm" "Da SATELLITE_NET verso CORPORATE_NET" \
     "timeout 2 bash -c 'echo > /dev/tcp/172.20.10.10/8000' 2>/dev/null; true" \
     "1000026"

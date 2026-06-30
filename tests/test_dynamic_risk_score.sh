@@ -11,8 +11,17 @@ start_testing_clients
 wait_for_opa || print_summary
 wait_for_splunk_hec || print_summary
 wait_for_splunk_search_api || print_summary
-set_static_risk_scores_baseline
-trap 'set_static_risk_scores_baseline >/dev/null 2>&1' EXIT
+pause_dynamic_risk_updates || exit 1
+
+cleanup_dynamic_risk_test() {
+  set_dynamic_risk_updates disabled >/dev/null 2>&1 || true
+  sleep 2
+  set_static_risk_scores_baseline >/dev/null 2>&1 || true
+  set_dynamic_risk_updates enabled >/dev/null 2>&1 || true
+}
+
+trap cleanup_dynamic_risk_test EXIT
+set_static_risk_scores_baseline || exit 1
 
 print_section "Risk score dinamico"
 
@@ -62,6 +71,9 @@ if [ "$indexed_count" -eq 8 ] && [ "$unique_count" -eq 8 ]; then
 else
   record_fail "Eventi indicizzati: ${indexed_count}; univoci: ${unique_count}; attesi: 8"
 fi
+
+# Avvia il calcolo soltanto dopo aver verificato baseline ed eventi di test.
+resume_dynamic_risk_updates || exit 1
 
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 printf '[TEST] Attendo aggiornamento risk score in OPA\n'
@@ -129,9 +141,15 @@ else
   record_fail "Risk score soc_admin non aggiornato; ultimo valore: ${soc_risk:-non disponibile}"
 fi
 
-printf '\n[INFO] Query Splunk: source="%s" test_run_id="%s"\n' \
-  "$EVENT_SOURCE" "$TEST_RUN_ID"
+printf '\n[INFO] Query Splunk specifica per questa esecuzione (copia e incolla):\n'
+cat <<SPLUNK_QUERY
+index=main sourcetype=opa_decision source="${EVENT_SOURCE}" earliest=-30m
+| spath path=test_run_id output=test_run_id
+| spath path=event_id output=event_id
+| search test_run_id="${TEST_RUN_ID}"
+| stats count as eventi dc(event_id) as eventi_univoci values(test_run_id) as esecuzione
+SPLUNK_QUERY
 
-set_static_risk_scores_baseline
+cleanup_dynamic_risk_test
 trap - EXIT
 print_summary

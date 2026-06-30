@@ -16,6 +16,7 @@
 - [Test di audit (Firewall e IDS)](#test-di-audit-firewall-e-ids)
   - [8. Audit firewall NFTables](#8-test_audit_nftablessh--audit-firewall-nftables)
   - [9. Audit IDS Snort](#9-test_audit_snortsh--audit-ids-snort)
+- [Query Splunk per la verifica manuale](#query-splunk-per-la-verifica-manuale)
 - [Riepilogo Principi ZTA Coperti](#riepilogo-principi-zta-coperti)
 - [Note operative](#note-operative)
 
@@ -23,7 +24,7 @@
 
 ## Panoramica
 
-Questa directory contiene la suite di test end-to-end per la verifica
+La directory `tests/` contiene la suite di test end-to-end per la verifica
 della Zero Trust Architecture. I test coprono accessi consentiti e negati,
 fallimenti mTLS, risk score dinamico integrato con Splunk e audit completi
 di firewall NFTables e IDS Snort. Ogni test verifica uno o più principi
@@ -35,7 +36,6 @@ ZTA fondamentali.
 
 ```text
 tests/
-├── README_TESTS.md                  # Questo file (documentazione completa)
 ├── run_project_tests.sh             # Runner principale (esegue tutte le suite)
 ├── lib_test_helpers.sh              # Funzioni comuni a tutti i test
 ├── config_audit.sh                  # Configurazione unificata per audit NFTables e Snort
@@ -66,10 +66,10 @@ Per rigenerare certificati e container prima dei test:
 
 ```bash
 bash scripts/clean_runtime.sh
-rm -rf certs/
 bash scripts/generate_certs.sh
 BINDINGS_FILE="scripts/identity_bindings.testing.conf" bash scripts/generate_device_certs.sh
-./run_project_tests.sh
+bash scripts/init_runtime.sh
+bash tests/run_project_tests.sh
 ```
 
 **Nota:** `run_project_tests.sh` deve essere eseguito dalla radice del progetto
@@ -82,8 +82,9 @@ o con `bash tests/run_project_tests.sh`.
 ### Scopo
 
 Esegue in sequenza le sei suite di test. Se una suite fallisce (exit code 1),
-il runner si ferma e stampa un messaggio di errore. Al termine produce un
-riepilogo con contatori OK/FAIL/SKIP.
+il runner registra l'errore ma continua con le suite successive. Al termine
+stampa le query Splunk pronte da copiare e restituisce un errore complessivo
+se almeno una suite non è riuscita.
 
 ### Ordine di esecuzione
 
@@ -141,12 +142,14 @@ attese e nella gestione degli esiti.
 | `run_splunk_search_json`         | Esegue query Splunk in modalità export e restituisce JSON                |
 | `extract_splunk_stat`            | Estrae valore numerico da risposta Splunk (campo specifico)              |
 | `send_splunk_hec_event`          | Invia evento JSON a Splunk HEC con token configurato                     |
+| `pause_dynamic_risk_updates`     | Sospende la saved search durante le suite con rischio statico            |
+| `resume_dynamic_risk_updates`    | Riattiva la saved search al termine della suite                          |
 
 #### Gestione risk score OPA
 
 | Funzione                         | Descrizione                                                              |
 |----------------------------------|--------------------------------------------------------------------------|
-| `set_static_risk_scores_baseline`| Sovrascrive `risk_scores.json` con valori bassi e riavvia OPA            |
+| `set_static_risk_scores_baseline`| Ripristina `risk_scores.json`, riavvia OPA e verifica i valori attesi    |
 | `get_opa_risk_score`             | Legge risk score corrente di un utente da OPA via REST API               |
 
 #### Registrazione esiti
@@ -163,6 +166,10 @@ attese e nella gestione degli esiti.
 - **Verifica attiva**: `wait_for_*` effettua polling attivo, non timeout fissi.
 - **Test atomici**: ogni invocazione di `run_access_test` è un test indipendente
   con contatori separati.
+- **Rischio deterministico**: le suite statiche sospendono temporaneamente la
+  saved search Splunk, evitando che gli alert generati dalle suite precedenti
+  modifichino la baseline durante le verifiche. La pianificazione viene sempre
+  riattivata all'uscita; il test del rischio dinamico la mantiene attiva.
 
 ---
 
@@ -323,13 +330,14 @@ pipeline di **continuous monitoring** e **adaptive access control**.
 
 | Passo | Azione                                                                 | Verifica                                          |
 |-------|------------------------------------------------------------------------|---------------------------------------------------|
-| 1     | Invio 8 eventi deny via HEC per `operatore_ancona`                     | Splunk ha indicizzato 8 eventi univoci            |
-| 2     | Attesa aggiornamento risk score in OPA (saved search Splunk ogni min)  | `risk_score >= 80` per `operatore_ancona`         |
-| 3     | Richiesta normalmente consentita (`GET /risorse/R-001`)                | HTTP 403 (bloccata dal rischio elevato)           |
-| 4     | Genera tentativo diretto a MongoDB da D-SOC per attivare Snort alert   | Alert Snort SID 999904 in Splunk                  |
-| 5     | Attesa nuovo aggiornamento risk score per `soc_admin` (da alert Snort) | `risk_score >= 90` per `soc_admin`                |
-| 6     | Richiesta normalmente consentita (`GET /all` da soc_admin)             | HTTP 403 (bloccata dal rischio elevato)           |
-| 7     | Ripristino baseline risk score                                         | Valori bassi per i test successivi                |
+| 1     | Sospensione saved search e ripristino baseline                         | `risk_score = 10` per gli utenti autorizzati      |
+| 2     | Invio 8 eventi deny via HEC per `operatore_ancona`                     | Splunk ha indicizzato 8 eventi univoci            |
+| 3     | Riattivazione e attesa della saved search Splunk                       | `risk_score >= 80` per `operatore_ancona`         |
+| 4     | Richiesta normalmente consentita (`GET /risorse/R-001`)                | HTTP 403 (bloccata dal rischio elevato)           |
+| 5     | Genera tentativo diretto a MongoDB da D-SOC per attivare Snort alert   | Alert Snort SID 999904 in Splunk                  |
+| 6     | Attesa nuovo aggiornamento risk score per `soc_admin` (da alert Snort) | `risk_score >= 90` per `soc_admin`                |
+| 7     | Richiesta normalmente consentita (`GET /all` da soc_admin)             | HTTP 403 (bloccata dal rischio elevato)           |
+| 8     | Ripristino baseline e riattivazione della saved search                 | Ambiente lasciato in stato operativo              |
 
 ### Principi ZTA verificati
 
@@ -427,6 +435,113 @@ I risultati sono scritti in `out/report_tests_snort.txt` con:
 
 ---
 
+## Query Splunk per la verifica manuale
+
+Aprire Splunk Web su `http://localhost:8000`, accedere con utente `admin` e
+la password `SPLUNK_PASSWORD` presente nel file locale `.env`, quindi usare
+**Search & Reporting**. Le query seguenti considerano gli ultimi 30 minuti.
+
+### Eventi disponibili per sourcetype
+
+```spl
+index=main earliest=-30m
+| stats count as eventi by sourcetype
+| sort - eventi
+```
+
+Verifica rapidamente che Splunk stia ricevendo decisioni OPA, alert Snort e
+log Envoy/MongoDB.
+
+### Decisioni OPA per utente
+
+```spl
+index=main sourcetype=opa_decision earliest=-30m
+| rex field=_raw max_match=1 "\"user_id\":\"(?<user_id>[^\"]+)"
+| rex field=_raw max_match=1 "\"allowed\":(?<allowed>true|false)"
+| stats count as totale sum(eval(allowed="true")) as consentite sum(eval(allowed="false")) as negate by user_id
+| sort user_id
+```
+
+Per controllare soltanto il capitano:
+
+```spl
+index=main sourcetype=opa_decision "capitano_claudia" earliest=-30m
+| table _time source host _raw
+| sort - _time
+```
+
+### Eventi del test di rischio dinamico
+
+```spl
+index=main sourcetype=opa_decision source="dynamic-risk-test" earliest=-30m
+| spath path=test_run_id output=test_run_id
+| spath path=event_id output=event_id
+| stats count as eventi dc(event_id) as eventi_univoci values(test_run_id) as esecuzioni
+```
+
+Il test completo deve produrre `eventi=8` ed `eventi_univoci=8` per ogni
+esecuzione.
+
+### Risk score correnti nel lookup Splunk
+
+```spl
+| inputlookup historical_risk_scores.csv
+| table user_id risk_score isAnomaly denied_count unique_sources snort_alert_count snort_critical_count device_id trust_level updated_at
+| sort user_id
+```
+
+Il lookup deve contenere sempre `operatore_ancona`, `capitano_claudia`,
+`soc_admin` e `intruso`. La saved search aggiunge una baseline versionata
+prima di calcolare gli eventi degli ultimi cinque minuti, quindi un utente
+senza attività recente non scompare più dal CSV.
+
+Per un singolo utente aggiungere, ad esempio:
+
+```spl
+| inputlookup historical_risk_scores.csv
+| search user_id="capitano_claudia"
+```
+
+### Alert Snort recenti
+
+```spl
+index=main sourcetype=snort_alert_json earliest=-30m
+| spath path=src_ap output=src_ap
+| spath path=dst_ap output=dst_ap
+| spath path=rule output=rule
+| spath path=action output=action
+| table _time src_ap dst_ap rule action
+| sort - _time
+```
+
+Verifica specifica del tentativo diretto a MongoDB usato dal test dinamico:
+
+```spl
+index=main sourcetype=snort_alert_json earliest=-30m
+| spath path=src_ap output=src_ap
+| spath path=dst_ap output=dst_ap
+| spath path=rule output=rule
+| search rule="1:999904:*"
+| table _time src_ap dst_ap rule
+| sort - _time
+```
+
+### Log Envoy e MongoDB
+
+```spl
+index=main sourcetype=envoy_access_json earliest=-30m
+| table _time host source _raw
+| sort - _time
+```
+
+```spl
+index=main sourcetype=mongodb_log earliest=-30m
+| table _time host source _raw
+| sort - _time
+```
+
+---
+
 ## Riepilogo Principi ZTA Coperti
 
 | Principio                       | Test che lo verificano                                                          |
@@ -453,8 +568,8 @@ I risultati sono scritti in `out/report_tests_snort.txt` con:
 - `test_audit_snort.sh` genera gli attacchi ma non verifica automaticamente
   che gli alert siano effettivamente prodotti da Snort e arrivati a Splunk;
   la verifica incrociata è demandata a `test_dynamic_risk_score.sh`.
-- I report storici in `tests/out/` sono conservati come esempi di
-  esecuzioni precedenti; non vengono sovrascritti automaticamente.
+- I report prodotti in `tests/out/` sono dati runtime ignorati da Git e
+  possono essere rigenerati eseguendo nuovamente le suite di audit.
 - Per debug durante l'esecuzione, consultare i log dei container:
   ```bash
   docker compose --profile testing logs -f pep_gateway pdp_engine ids_network_monitor

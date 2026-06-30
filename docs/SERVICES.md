@@ -1,7 +1,8 @@
 # Servizi – Maritime Zero Trust Architecture
 
-Questa directory contiene i Dockerfile, gli entrypoint e gli script
-necessari per costruire ogni servizio dello stack. La documentazione
+La directory `services/` contiene i Dockerfile, gli entrypoint e gli script
+dei componenti costruiti localmente. OPA, MongoDB e Splunk usano invece le
+immagini ufficiali dichiarate nel Compose. La documentazione
 seguente descrive il ruolo di ciascun componente all'interno del modello
 **Never Trust, Always Verify**.
 
@@ -9,7 +10,6 @@ seguente descrive il ruolo di ciascun componente all'interno del modello
 
 ```text
 services/
-├── opa/                  # Policy Decision Point (OPA) – solo .gitkeep
 ├── envoy/                # Policy Enforcement Point (Envoy)
 │   ├── Dockerfile
 │   └── entrypoint.sh
@@ -19,9 +19,6 @@ services/
 ├── swtpm/                # Emulatore TPM 2.0 software
 │   ├── Dockerfile
 │   └── entrypoint-swtpm.sh
-├── splunk/               # SIEM Splunk Enterprise – solo .gitkeep
-├── clients/              # Client generico per test di rete
-│   └── Dockerfile
 ├── clients_tpm/          # Client dimostrativo con TPM emulato
 │   ├── Dockerfile
 │   └── scripts/
@@ -37,17 +34,16 @@ services/
 │   ├── server.js
 │   ├── package.json
 │   └── package-lock.json
-└── mongodb/              # Database MongoDB – solo .gitkeep
 ```
 
 ---
 
-## 1. `opa/` – Policy Decision Point (PDP)
+## 1. OPA – Policy Decision Point (PDP)
 
 ### Immagine
 
 Utilizza l'immagine ufficiale OPA (definita in `docker-compose.yml`).
-Non è presente un Dockerfile personalizzato in questa directory.
+Non è presente un Dockerfile personalizzato nel repository.
 
 ### Ruolo ZTA
 
@@ -149,7 +145,7 @@ Avvia `swtpm socket` in modalità TPM 2.0:
 
 ---
 
-## 5. `splunk/` – SIEM Splunk Enterprise
+## 5. Splunk – SIEM Splunk Enterprise
 
 ### Immagine
 
@@ -162,27 +158,14 @@ Non è presente Dockerfile personalizzato.
   Snort, log firewall (NFTables via HEC), log MongoDB e log Envoy.
 - **Risk score dinamico**: tramite l'app `opa_risk_updater`, calcola ogni
   minuto il rischio per ogni utente e aggiorna il file JSON letto da OPA.
+- **Baseline completa**: il lookup `risk_user_baseline.csv` mantiene nel
+  risultato anche gli utenti senza eventi negli ultimi cinque minuti.
 - **Correlazione eventi**: la saved search combina decision log e alert IDS
   per determinare anomalie (tentativi negati, traffico sospetto, ecc.).
 
 ---
 
-## 6. `clients/` – Client Generico
-
-### Dockerfile
-
-Basato su `alpine:3.19`. Installa `openssl`, `jq`, `bash`, `ca-certificates`,
-`wget`, `curl`, `gcompat`. Scarica e installa `mongosh` 2.2.6.
-
-### Ruolo ZTA
-
-- Utilizzato per test di connettività e debug diretto.
-- Non ha accesso a TPM; le connessioni mTLS possono essere testate con
-  certificati file-based.
-
----
-
-## 7. `clients_tpm/` – Client Dimostrativo con TPM
+## 6. `clients_tpm/` – Client di test con TPM
 
 ### Dockerfile
 
@@ -255,7 +238,7 @@ autorizza la coppia utente-dispositivo-rete.
 
 ---
 
-## 8. `nftables/` – Firewall Perimetrale
+## 7. `nftables/` – Firewall Perimetrale
 
 ### Dockerfile
 
@@ -297,7 +280,7 @@ Basato su `debian:12.14-slim`. Installa:
 
 ---
 
-## 9. `api_backend/` – API REST Backend
+## 8. `api_backend/` – API REST Backend
 
 ### Dockerfile
 
@@ -334,7 +317,7 @@ API REST Express che:
 
 ---
 
-## 10. `mongodb/` – Database MongoDB
+## 9. MongoDB – Database con TLS mutuale
 
 ### Immagine
 
@@ -368,8 +351,8 @@ Non è presente Dockerfile personalizzato; la configurazione TLS e gli script
 
 ## Note operative
 
-- I servizi `opa`, `splunk` e `mongodb` non hanno Dockerfile in questa
-  directory perché usano immagini ufficiali. Le personalizzazioni
+- OPA, Splunk e MongoDB non hanno Dockerfile personalizzati perché usano
+  immagini ufficiali. Le personalizzazioni
   (policy, configurazioni, script init) sono montate via volumi dichiarati
   in `docker-compose.yml` o copiate nei path attesi.
 - I container client TPM richiedono che il relativo SWTPM sia già avviato

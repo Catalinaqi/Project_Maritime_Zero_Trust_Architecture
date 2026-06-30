@@ -388,7 +388,7 @@ for service in swtpm_d001 swtpm_d002 swtpm_dsoc; do
     >/dev/null 2>&1 || true
 done
 
-log STEP "Rimozione dei client demo eventualmente gia' avviati"
+log STEP "Rimozione dei client di test eventualmente gia' avviati"
 
 docker compose --profile testing rm -sf \
   client_d001_tpm \
